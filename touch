@@ -1,0 +1,43 @@
+# Binaries
+/bootstrap
+main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build directories
+bin/
+dist/
+build/
+
+# Go workspace
+vendor/
+
+# Go coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# VS Code
+.vscode/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Archive files
+*.zip
+
+firebase-credentials.json

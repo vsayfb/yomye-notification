@@ -10,7 +10,7 @@ type NotificationEventType string
 
 const (
 	EventNewMessage         NotificationEventType = "new_message"
-	EventGigApproved        NotificationEventType = "gig_approved"
+	EventListingApproved    NotificationEventType = "listing_approved"
 	EventGigCategoryMatched NotificationEventType = "gig_category_matched"
 )
 
@@ -18,14 +18,22 @@ const (
 // as distinct from NotificationEventType which identifies the inbound event).
 const (
 	TypeMessageReceived    = "message_received"
-	TypeGigApproved        = "gig_approved"
+	TypeListingApproved    = "listing_approved"
 	TypeGigCategoryMatched = "gig_category_matched"
 )
 
 // Notification.EntityType values.
 const (
-	EntityTypeThread = "thread"
-	EntityTypeGig    = "gig"
+	EntityTypeThread  = "thread"
+	EntityTypeListing = "listing"
+	EntityTypeGig     = "gig"
+)
+
+// Stable base_categories.slug values used to route family-specific listing
+// behavior. UUIDs are intentionally not represented in this package.
+const (
+	BaseCategoryGig     = "gig"
+	BaseCategoryForSale = "for-sale"
 )
 
 type Notification struct {

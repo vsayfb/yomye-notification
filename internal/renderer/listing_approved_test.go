@@ -1,0 +1,99 @@
+package renderer
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/vsayfb/gig-platform-notification-lambda/internal/notification"
+)
+
+func TestListingApprovedRenderer(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{
+		"recipient_id": "74b061c1-502f-4eb6-83bf-ce9b8df155d7",
+		"listing_id": "24d97762-95d5-4a3d-af75-e3c218d66677",
+		"base_category_slug": "gig",
+		"title": "Elektrikçi Aranıyor",
+		"occurred_at": "2026-07-25T12:30:00Z"
+	}`)
+
+	got, push, err := NewListingApprovedRenderer().Render(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	if got.Type != notification.TypeListingApproved {
+		t.Errorf("notification type = %q, want %q", got.Type, notification.TypeListingApproved)
+	}
+	if got.EntityType != notification.EntityTypeListing {
+		t.Errorf("entity type = %q, want %q", got.EntityType, notification.EntityTypeListing)
+	}
+	if got.EntityID != "24d97762-95d5-4a3d-af75-e3c218d66677" {
+		t.Errorf("entity ID = %q", got.EntityID)
+	}
+	if got.ActorID != nil {
+		t.Errorf("actor ID = %v, want nil", got.ActorID)
+	}
+	if got.Metadata["listing_id"] != got.EntityID {
+		t.Errorf("metadata listing_id = %v, want %q", got.Metadata["listing_id"], got.EntityID)
+	}
+	if got.Metadata["base_category_slug"] != notification.BaseCategoryGig {
+		t.Errorf(
+			"metadata base_category_slug = %v, want %q",
+			got.Metadata["base_category_slug"],
+			notification.BaseCategoryGig,
+		)
+	}
+	if push.Data["listing_id"] != got.EntityID {
+		t.Errorf("push listing_id = %q, want %q", push.Data["listing_id"], got.EntityID)
+	}
+	if push.Data["base_category_slug"] != notification.BaseCategoryGig {
+		t.Errorf(
+			"push base_category_slug = %q, want %q",
+			push.Data["base_category_slug"],
+			notification.BaseCategoryGig,
+		)
+	}
+}
+
+func TestListingApprovedRendererSupportsForSale(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{
+		"recipient_id": "74b061c1-502f-4eb6-83bf-ce9b8df155d7",
+		"listing_id": "24d97762-95d5-4a3d-af75-e3c218d66677",
+		"base_category_slug": "for-sale",
+		"title": "Bisiklet",
+		"occurred_at": "2026-07-25T12:30:00Z"
+	}`)
+
+	got, _, err := NewListingApprovedRenderer().Render(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if got.Metadata["base_category_slug"] != notification.BaseCategoryForSale {
+		t.Errorf(
+			"metadata base_category_slug = %v, want %q",
+			got.Metadata["base_category_slug"],
+			notification.BaseCategoryForSale,
+		)
+	}
+}
+
+func TestListingApprovedRendererRejectsUnknownFamily(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{
+		"recipient_id": "74b061c1-502f-4eb6-83bf-ce9b8df155d7",
+		"listing_id": "24d97762-95d5-4a3d-af75-e3c218d66677",
+		"base_category_slug": "unknown",
+		"title": "Listing",
+		"occurred_at": "2026-07-25T12:30:00Z"
+	}`)
+
+	if _, _, err := NewListingApprovedRenderer().Render(context.Background(), payload); err == nil {
+		t.Fatal("Render() error = nil, want unsupported family error")
+	}
+}

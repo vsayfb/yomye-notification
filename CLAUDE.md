@@ -200,7 +200,7 @@ Every notification has its own event DTO.
 Future events:
 
 - new_message
-- gig_approved
+- listing_approved
 - application_received
 - application_accepted
 - application_rejected

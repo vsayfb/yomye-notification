@@ -53,7 +53,7 @@ func NewHandler() (*handler.Handler, error) {
 
 	dispatcher := service.NewDispatcher()
 	dispatcher.Register(notification.EventNewMessage, renderer.NewNewMessageRenderer())
-	dispatcher.Register(notification.EventGigApproved, renderer.NewGigApprovedRenderer())
+	dispatcher.Register(notification.EventListingApproved, renderer.NewListingApprovedRenderer())
 
 	dispatcher.Register(notification.EventGigCategoryMatched, renderer.NewGigCategoryMatchedRenderer())
 	dispatcher.RegisterFanOut(notification.EventGigCategoryMatched, service.NewGigCategoryMatchedResolver(subscriberRepo))

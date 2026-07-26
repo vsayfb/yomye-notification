@@ -1,0 +1,61 @@
+name: Deploy Lambda
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build
+        run: GOOS=linux GOARCH=amd64 go build -o bootstrap ./cmd/notification
+
+      - name: Zip
+        run: zip bootstrap.zip bootstrap
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload artifact
+        run: |
+          aws s3 cp bootstrap.zip \
+            "s3://${{ vars.LAMBDA_DEPLOYMENTS_BUCKET }}/notification-lambda/${{ github.sha }}.zip"
+
+      - name: Update function code
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --s3-bucket "${{ vars.LAMBDA_DEPLOYMENTS_BUCKET }}" \
+            --s3-key "notification-lambda/${{ github.sha }}.zip"
+
+          # Lambda applies the update asynchronously - wait so the workflow
+          # reports the real outcome, not just "the API call was accepted."
+          aws lambda wait function-updated \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}"
+
+      - name: Verify
+        run: |
+          STATE=$(aws lambda get-function \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --query "Configuration.LastUpdateStatus" --output text)
+
+          echo "Last update status: $STATE"
+          if [ "$STATE" != "Successful" ]; then
+            echo "Lambda update did not report Successful."
+            exit 1
+          fi

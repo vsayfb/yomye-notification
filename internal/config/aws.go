@@ -16,11 +16,11 @@ import (
 const ParameterPath = "/yevmiye/app/"
 
 const (
-	ParameterRDSSecretArn        = "rds_secret_arn"
-	ParameterFirebaseCredentials = "firebase_credentials"
-	ParameterDBHost              = "db_host"
-	ParameterDBPort              = "db_port"
-	ParameterDBName              = "db_name"
+	ParameterRDSSecretArn        = "rds-secret-arn"
+	ParameterFirebaseCredentials = "firebase-credentials"
+	ParameterDBHost              = "db-host"
+	ParameterDBPort              = "db-port"
+	ParameterDBName              = "db-name"
 )
 
 type rdsSecret struct {

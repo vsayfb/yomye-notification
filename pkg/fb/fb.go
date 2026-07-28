@@ -98,3 +98,10 @@ func (c *FCMClient) Send(ctx context.Context, token, title, body string, data ma
 
 	return nil
 }
+
+// IsUnregistered reports whether Firebase has permanently invalidated the
+// target registration token. Callers should remove such tokens rather than
+// retrying them.
+func IsUnregistered(err error) bool {
+	return messaging.IsUnregistered(err)
+}

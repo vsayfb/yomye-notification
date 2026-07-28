@@ -52,3 +52,21 @@ func (r *FCMTokenRepository) ListByUserID(ctx context.Context, userID uuid.UUID)
 
 	return tokens, nil
 }
+
+func (r *FCMTokenRepository) DeleteByUserID(
+	ctx context.Context,
+	userID uuid.UUID,
+	tokens []string,
+) error {
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	const query = `DELETE FROM fcm_tokens WHERE user_id = $1 AND token = ANY($2)`
+
+	if _, err := r.pool.Exec(ctx, query, userID, tokens); err != nil {
+		return fmt.Errorf("fcm_token_repository: delete invalid tokens: %w", err)
+	}
+
+	return nil
+}

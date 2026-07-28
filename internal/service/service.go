@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/event"
@@ -113,8 +114,29 @@ func (s *Service) handleOne(ctx context.Context, r renderer.Renderer, payload js
 		return nil
 	}
 
-	if err := s.pushProvider.Send(ctx, tokens, push); err != nil {
-		return fmt.Errorf("send push notification: %w", err)
+	result, sendErr := s.pushProvider.Send(ctx, tokens, push)
+
+	if err := s.tokenRepo.DeleteByUserID(
+		ctx,
+		persisted.UserID,
+		result.UnregisteredTokens,
+	); err != nil {
+		return fmt.Errorf("delete unregistered device tokens: %w", err)
+	}
+
+	if len(result.UnregisteredTokens) > 0 {
+		slog.InfoContext(
+			ctx,
+			"deleted unregistered FCM tokens",
+			"user_id",
+			persisted.UserID,
+			"count",
+			len(result.UnregisteredTokens),
+		)
+	}
+
+	if sendErr != nil {
+		return fmt.Errorf("send push notification: %w", sendErr)
 	}
 
 	if err := s.notifRepo.MarkPushed(ctx, persisted.ID, time.Now().UTC()); err != nil {

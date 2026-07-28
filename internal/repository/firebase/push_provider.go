@@ -22,18 +22,35 @@ func NewPushProvider(client *fb.FCMClient) *PushProvider {
 
 var _ notification.PushProvider = (*PushProvider)(nil)
 
-func (p *PushProvider) Send(ctx context.Context, tokens []string, push *notification.PushNotification) error {
+func (p *PushProvider) Send(
+	ctx context.Context,
+	tokens []string,
+	push *notification.PushNotification,
+) (notification.PushResult, error) {
+	result := notification.PushResult{
+		UnregisteredTokens: make([]string, 0),
+	}
 	var errs []error
 
 	for _, token := range tokens {
 		if err := p.client.Send(ctx, token, push.Title, push.Body, push.Data); err != nil {
+			if fb.IsUnregistered(err) {
+				result.UnregisteredTokens = append(result.UnregisteredTokens, token)
+				continue
+			}
+
 			errs = append(errs, fmt.Errorf("token %s: %w", token, err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("firebase: %d/%d sends failed: %w", len(errs), len(tokens), errors.Join(errs...))
+		return result, fmt.Errorf(
+			"firebase: %d/%d sends failed: %w",
+			len(errs),
+			len(tokens),
+			errors.Join(errs...),
+		)
 	}
 
-	return nil
+	return result, nil
 }

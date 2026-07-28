@@ -29,14 +29,37 @@ type FirebaseServiceAccount struct {
 	UniverseDomain          string `json:"universe_domain"`
 }
 
+func (c *FirebaseServiceAccount) Validate() error {
+	if c == nil {
+		return fmt.Errorf("credentials are nil")
+	}
+	if c.Type != string(option.ServiceAccount) {
+		return fmt.Errorf("credential type is %q, want %q", c.Type, option.ServiceAccount)
+	}
+	if c.ProjectID == "" {
+		return fmt.Errorf("project_id is required")
+	}
+	if c.PrivateKey == "" {
+		return fmt.Errorf("private_key is required")
+	}
+	if c.ClientEmail == "" {
+		return fmt.Errorf("client_email is required")
+	}
+	return nil
+}
+
 func NewClient(ctx context.Context, creds *FirebaseServiceAccount) (*FCMClient, error) {
+	if err := creds.Validate(); err != nil {
+		return nil, fmt.Errorf("fcm: invalid service account credentials: %w", err)
+	}
+
 	jsonBytes, err := json.Marshal(creds)
 
 	if err != nil {
 		return nil, err
 	}
 
-	app, err := firebase.NewApp(ctx, nil, option.WithAuthCredentialsJSON(option.AuthorizedUser, jsonBytes))
+	app, err := firebase.NewApp(ctx, nil, option.WithAuthCredentialsJSON(option.ServiceAccount, jsonBytes))
 
 	if err != nil {
 		return nil, fmt.Errorf("fcm: failed to init messaging client: %w", err)

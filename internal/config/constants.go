@@ -1,10 +1,12 @@
 package config
 
 const AppEnv = "APP_ENV"
+const AWSLambdaFunctionName = "AWS_LAMBDA_FUNCTION_NAME"
 
 const (
 	EnvironmentDevelopment = "development"
 	EnvironmentProduction  = "production"
+	EnvironmentProd        = "prod"
 )
 
 const (

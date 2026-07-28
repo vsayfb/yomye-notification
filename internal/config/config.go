@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/vsayfb/gig-platform-notification-lambda/pkg/fb"
 )
@@ -34,13 +35,29 @@ type DBConfig struct {
 }
 
 func Load(ctx context.Context) (*Config, error) {
-	env := os.Getenv(AppEnv)
+	env := strings.ToLower(strings.TrimSpace(os.Getenv(AppEnv)))
 
-	if env == EnvironmentProduction {
+	if useAWSConfig(env, os.Getenv(AWSLambdaFunctionName)) {
 		return loadAWS(ctx)
 	}
 
+	if env != "" && env != EnvironmentDevelopment {
+		return nil, fmt.Errorf(
+			"unsupported %s value %q; expected %q or %q",
+			AppEnv,
+			env,
+			EnvironmentDevelopment,
+			EnvironmentProduction,
+		)
+	}
+
 	return loadEnv()
+}
+
+func useAWSConfig(env, lambdaFunctionName string) bool {
+	return env == EnvironmentProduction ||
+		env == EnvironmentProd ||
+		(env == "" && lambdaFunctionName != "")
 }
 
 func (c *DBConfig) DSN() string {

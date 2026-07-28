@@ -52,10 +52,16 @@ func loadAWS(ctx context.Context) (*Config, error) {
 
 	var creds fb.FirebaseServiceAccount
 
-	err = json.Unmarshal([]byte(params[ParameterFirebaseCredentials]), &creds)
-
-	if err != nil {
+	if err := json.Unmarshal([]byte(params[ParameterFirebaseCredentials]), &creds); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal Firebase credentials: %w", err)
+	}
+
+	if err := creds.Validate(); err != nil {
+		return nil, fmt.Errorf(
+			"invalid Firebase credentials in SSM parameter %q: %w",
+			parameter(ParameterFirebaseCredentials),
+			err,
+		)
 	}
 
 	return &Config{

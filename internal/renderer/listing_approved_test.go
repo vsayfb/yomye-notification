@@ -58,7 +58,7 @@ func TestListingApprovedRenderer(t *testing.T) {
 	}
 }
 
-func TestListingApprovedRendererSupportsForSale(t *testing.T) {
+func TestListingApprovedRendererRejectsForSale(t *testing.T) {
 	t.Parallel()
 
 	payload := json.RawMessage(`{
@@ -69,16 +69,8 @@ func TestListingApprovedRendererSupportsForSale(t *testing.T) {
 		"occurred_at": "2026-07-25T12:30:00Z"
 	}`)
 
-	got, _, err := NewListingApprovedRenderer().Render(context.Background(), payload)
-	if err != nil {
-		t.Fatalf("Render() error = %v", err)
-	}
-	if got.Metadata["base_category_slug"] != notification.BaseCategoryForSale {
-		t.Errorf(
-			"metadata base_category_slug = %v, want %q",
-			got.Metadata["base_category_slug"],
-			notification.BaseCategoryForSale,
-		)
+	if _, _, err := NewListingApprovedRenderer().Render(context.Background(), payload); err == nil {
+		t.Fatal("Render() error = nil, want gig-only scope error")
 	}
 }
 

@@ -32,8 +32,7 @@ const (
 // Stable base_categories.slug values used to route family-specific listing
 // behavior. UUIDs are intentionally not represented in this package.
 const (
-	BaseCategoryGig     = "gig"
-	BaseCategoryForSale = "for-sale"
+	BaseCategoryGig = "gig"
 )
 
 type Notification struct {

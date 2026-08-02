@@ -39,11 +39,11 @@ func (r *ListingApprovedRenderer) Render(
 		return nil, nil, fmt.Errorf("listing_approved: invalid listing_id: %w", err)
 	}
 
-	if evt.BaseCategorySlug != notification.BaseCategoryGig &&
-		evt.BaseCategorySlug != notification.BaseCategoryForSale {
+	if evt.BaseCategorySlug != notification.BaseCategoryGig {
 		return nil, nil, fmt.Errorf(
-			"listing_approved: unsupported base_category_slug %q",
+			"listing_approved: unsupported base_category_slug %q; Yövmiye supports only %q",
 			evt.BaseCategorySlug,
+			notification.BaseCategoryGig,
 		)
 	}
 

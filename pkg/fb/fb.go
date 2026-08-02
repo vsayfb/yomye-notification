@@ -3,8 +3,11 @@ package fb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"reflect"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -13,6 +16,25 @@ import (
 
 type FCMClient struct {
 	msgClient *messaging.Client
+}
+
+// SendError preserves the structured classification made against the original
+// Firebase SDK error before any contextual wrapping is added.
+type SendError struct {
+	HTTPStatus   int
+	Status       string
+	FCMErrorCode string
+	Message      string
+	Unregistered bool
+	cause        error
+}
+
+func (e *SendError) Error() string {
+	return e.Message
+}
+
+func (e *SendError) Unwrap() error {
+	return e.cause
 }
 
 type FirebaseServiceAccount struct {
@@ -93,7 +115,18 @@ func (c *FCMClient) Send(ctx context.Context, token, title, body string, data ma
 	_, err := c.msgClient.Send(ctx, msg)
 
 	if err != nil {
-		return fmt.Errorf("fcm: send failed: %w", err)
+		details := firebaseErrorDetails(err)
+		return &SendError{
+			HTTPStatus:   details.HTTPStatus,
+			Status:       details.Status,
+			FCMErrorCode: details.FCMErrorCode,
+			Message:      err.Error(),
+			// This is intentionally the only permanent-token predicate.
+			// It checks the original, unwrapped SDK error and therefore
+			// requires the structured FCM error code UNREGISTERED.
+			Unregistered: messaging.IsUnregistered(err),
+			cause:        err,
+		}
 	}
 
 	return nil
@@ -103,5 +136,91 @@ func (c *FCMClient) Send(ctx context.Context, token, title, body string, data ma
 // target registration token. Callers should remove such tokens rather than
 // retrying them.
 func IsUnregistered(err error) bool {
-	return messaging.IsUnregistered(err)
+	var sendErr *SendError
+	if errors.As(err, &sendErr) {
+		return sendErr.Unregistered
+	}
+
+	return errorTreeContains(err, messaging.IsUnregistered)
+}
+
+// ErrorDetails returns safe diagnostics for an FCM send failure. It contains
+// no registration token.
+func ErrorDetails(err error) (httpStatus int, status, fcmErrorCode, message string) {
+	var sendErr *SendError
+	if errors.As(err, &sendErr) {
+		return sendErr.HTTPStatus, sendErr.Status, sendErr.FCMErrorCode, sendErr.Message
+	}
+	return 0, "", "", err.Error()
+}
+
+type fcmErrorDetails struct {
+	HTTPStatus   int
+	Status       string
+	FCMErrorCode string
+}
+
+// firebaseErrorDetails reads the exported diagnostic fields on the Admin
+// SDK's internal FirebaseError. The SDK does not expose a public accessor for
+// these fields, even though they contain the HTTP response and structured FCM
+// error code used by messaging.IsUnregistered.
+func firebaseErrorDetails(err error) fcmErrorDetails {
+	value := reflect.ValueOf(err)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return fcmErrorDetails{}
+	}
+
+	value = value.Elem()
+	if value.Kind() != reflect.Struct || value.Type().Name() != "FirebaseError" {
+		return fcmErrorDetails{}
+	}
+
+	var details fcmErrorDetails
+
+	if field := value.FieldByName("ErrorCode"); field.IsValid() && field.Kind() == reflect.String {
+		details.Status = field.String()
+	}
+
+	if field := value.FieldByName("Response"); field.IsValid() && field.CanInterface() && !field.IsNil() {
+		if response, ok := field.Interface().(*http.Response); ok && response != nil {
+			details.HTTPStatus = response.StatusCode
+		}
+	}
+
+	if field := value.FieldByName("Ext"); field.IsValid() && field.Kind() == reflect.Map {
+		key := reflect.ValueOf("messagingErrorCode")
+		code := field.MapIndex(key)
+		if code.IsValid() && code.Kind() == reflect.Interface && !code.IsNil() {
+			code = code.Elem()
+		}
+		if code.IsValid() && code.Kind() == reflect.String {
+			details.FCMErrorCode = code.String()
+		}
+	}
+
+	return details
+}
+
+// errorTreeContains walks ordinary wrapped errors as well as errors.Join
+// trees. Firebase's classifier uses a concrete type assertion rather than
+// errors.As, so it cannot recognize its own error after callers add context
+// with fmt.Errorf("%w").
+func errorTreeContains(err error, match func(error) bool) bool {
+	if err == nil {
+		return false
+	}
+	if match(err) {
+		return true
+	}
+
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if errorTreeContains(child, match) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return errorTreeContains(errors.Unwrap(err), match)
 }

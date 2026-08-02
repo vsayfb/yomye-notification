@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/notification"
 	"github.com/vsayfb/gig-platform-notification-lambda/pkg/fb"
@@ -32,14 +33,33 @@ func (p *PushProvider) Send(
 	}
 	var errs []error
 
-	for _, token := range tokens {
+	for i, token := range tokens {
 		if err := p.client.Send(ctx, token, push.Title, push.Body, push.Data); err != nil {
+			httpStatus, status, fcmErrorCode, message := fb.ErrorDetails(err)
+			slog.WarnContext(
+				ctx,
+				"FCM send failed",
+				"device_index",
+				i,
+				"http_status",
+				httpStatus,
+				"error_status",
+				status,
+				"fcm_error_code",
+				fcmErrorCode,
+				"message",
+				message,
+			)
+
 			if fb.IsUnregistered(err) {
 				result.UnregisteredTokens = append(result.UnregisteredTokens, token)
 				continue
 			}
 
-			errs = append(errs, fmt.Errorf("token %s: %w", token, err))
+			// Tokens are credentials and must not be emitted into application
+			// logs. The position is enough to correlate a failure within this
+			// delivery attempt.
+			errs = append(errs, fmt.Errorf("device %d: %w", i, err))
 		}
 	}
 

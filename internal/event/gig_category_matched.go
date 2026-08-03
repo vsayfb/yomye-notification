@@ -10,13 +10,15 @@ import (
 // gig's profession/category has been resolved. It carries the fact only —
 // no resolved subscriber list — since the worker doesn't own
 // subscriber-domain data and a snapshot taken at publish time would go
-// stale (and risk the SQS 256KB message cap) for popular categories/cities.
-// Subscribers are resolved live, at consume time, from this GigID/CategoryID/CityID.
+// stale (and risk the SQS 256KB message cap) for popular categories/places.
+// Subscribers are resolved live at consume time using the category and
+// optional international location context.
 type GigCategoryMatchedEvent struct {
-	GigID      uuid.UUID `json:"gig_id"`
-	CategoryID uuid.UUID `json:"category_id"`
-	CityID     int16     `json:"city_id"`
-	OccurredAt time.Time `json:"occurred_at"`
+	GigID      uuid.UUID  `json:"gig_id"`
+	CategoryID uuid.UUID  `json:"category_id"`
+	CountryID  *uuid.UUID `json:"country_id,omitempty"`
+	PlaceID    *uuid.UUID `json:"place_id,omitempty"`
+	OccurredAt time.Time  `json:"occurred_at"`
 }
 
 // GigCategoryMatchedNotificationEvent is the per-recipient payload the
@@ -25,9 +27,10 @@ type GigCategoryMatchedEvent struct {
 // travels over SQS itself; it only ever exists in-process between the
 // fan-out resolver and the renderer.
 type GigCategoryMatchedNotificationEvent struct {
-	RecipientID uuid.UUID `json:"recipient_id"`
-	GigID       uuid.UUID `json:"gig_id"`
-	CategoryID  uuid.UUID `json:"category_id"`
-	CityID      int16     `json:"city_id"`
-	OccurredAt  time.Time `json:"occurred_at"`
+	RecipientID uuid.UUID  `json:"recipient_id"`
+	GigID       uuid.UUID  `json:"gig_id"`
+	CategoryID  uuid.UUID  `json:"category_id"`
+	CountryID   *uuid.UUID `json:"country_id,omitempty"`
+	PlaceID     *uuid.UUID `json:"place_id,omitempty"`
+	OccurredAt  time.Time  `json:"occurred_at"`
 }

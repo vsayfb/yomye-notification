@@ -24,13 +24,22 @@ func NewSubscriberRepository(pool *pgxpool.Pool) *SubscriberRepository {
 
 var _ subscriber.Repository = (*SubscriberRepository)(nil)
 
-func (r *SubscriberRepository) ListByCategoryAndCity(
+func (r *SubscriberRepository) ListByCategoryAndLocation(
 	ctx context.Context,
 	categoryID uuid.UUID,
-	cityID subscriber.CityID,
+	countryID *uuid.UUID,
+	placeID *uuid.UUID,
 ) ([]subscriber.Subscriber, error) {
-
-	slog.InfoContext(ctx, "find subscribers", "category", categoryID, "city", cityID)
+	slog.InfoContext(
+		ctx,
+		"find subscribers",
+		"category_id",
+		categoryID,
+		"country_id",
+		countryID,
+		"place_id",
+		placeID,
+	)
 
 	const query = `
 		SELECT
@@ -39,10 +48,11 @@ func (r *SubscriberRepository) ListByCategoryAndCity(
 		JOIN user_categories uc
 			ON uc.user_id = u.id
 		WHERE uc.category_id = $1
-		  AND u.city_id = $2;
+		  AND u.country_id IS NOT DISTINCT FROM $2::uuid
+		  AND ($3::uuid IS NULL OR u.place_id = $3);
 	`
 
-	rows, err := r.pool.Query(ctx, query, categoryID, cityID)
+	rows, err := r.pool.Query(ctx, query, categoryID, countryID, placeID)
 
 	if err != nil {
 		return nil, fmt.Errorf("subscriber_repository: query: %w", err)

@@ -6,9 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// CityID mirrors the users.city_id column type.
-type CityID int16
-
 // Subscriber is the minimal shape needed to notify a matched user — just
 // enough to build a per-recipient event payload. It intentionally isn't
 // the full user/subscriber domain model.
@@ -17,8 +14,13 @@ type Subscriber struct {
 }
 
 // Repository resolves subscribers live at read time. It must never be
-// snapshotted into an event payload: subscriptions and city can change
+// snapshotted into an event payload: subscriptions and location can change
 // between publish and consume, and the caller wants the current state.
 type Repository interface {
-	ListByCategoryAndCity(ctx context.Context, categoryID uuid.UUID, cityID CityID) ([]Subscriber, error)
+	ListByCategoryAndLocation(
+		ctx context.Context,
+		categoryID uuid.UUID,
+		countryID *uuid.UUID,
+		placeID *uuid.UUID,
+	) ([]Subscriber, error)
 }

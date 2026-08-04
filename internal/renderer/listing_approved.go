@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -47,14 +48,15 @@ func (r *ListingApprovedRenderer) Render(
 		)
 	}
 
-	if evt.Title == "" {
-		return nil, nil, fmt.Errorf("listing_approved: title is required")
-	}
-
 	title := "Your listing was approved"
-	body := fmt.Sprintf("%s is now live.", evt.Title)
-	localizationArgs := map[string]string{
-		"title": evt.Title,
+	body := "Your listing is now live."
+	localizationKey := notification.LocalizationKeyListingApprovedGeneric
+	localizationArgs := map[string]string{}
+
+	if classifiedTitle := strings.TrimSpace(evt.Title); classifiedTitle != "" {
+		body = fmt.Sprintf("%s is now live.", classifiedTitle)
+		localizationKey = notification.LocalizationKeyListingApproved
+		localizationArgs["title"] = classifiedTitle
 	}
 
 	n := notification.NewNotification(
@@ -68,13 +70,13 @@ func (r *ListingApprovedRenderer) Render(
 		notification.AddLocalizationMetadata(map[string]any{
 			"listing_id":         listingID.String(),
 			"base_category_slug": evt.BaseCategorySlug,
-		}, notification.LocalizationKeyListingApproved, localizationArgs),
+		}, localizationKey, localizationArgs),
 	)
 
 	push, err := notification.NewSemanticPush(
 		evt.RecipientID,
 		n,
-		notification.LocalizationKeyListingApproved,
+		localizationKey,
 		localizationArgs,
 		title,
 		body,

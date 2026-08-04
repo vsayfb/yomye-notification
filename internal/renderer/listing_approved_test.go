@@ -15,7 +15,7 @@ func TestListingApprovedRenderer(t *testing.T) {
 		"recipient_id": "74b061c1-502f-4eb6-83bf-ce9b8df155d7",
 		"listing_id": "24d97762-95d5-4a3d-af75-e3c218d66677",
 		"base_category_slug": "gig",
-		"title": "Elektrikçi Aranıyor",
+		"title": "Bahçe Bakımı",
 		"occurred_at": "2026-07-25T12:30:00Z"
 	}`)
 
@@ -58,14 +58,51 @@ func TestListingApprovedRenderer(t *testing.T) {
 	if push.Data["localization_key"] != notification.LocalizationKeyListingApproved {
 		t.Errorf("push localization_key = %q", push.Data["localization_key"])
 	}
-	if push.Data["localization_args"] != `{"title":"Elektrikçi Aranıyor"}` {
+	if push.Data["localization_args"] != `{"title":"Bahçe Bakımı"}` {
 		t.Errorf("push localization_args = %q", push.Data["localization_args"])
+	}
+	args, ok := got.Metadata["localization_args"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata localization_args type = %T, want map[string]string", got.Metadata["localization_args"])
+	}
+	if args["title"] != "Bahçe Bakımı" {
+		t.Errorf("metadata localization_args title = %q, want %q", args["title"], "Bahçe Bakımı")
 	}
 	if _, exists := push.Data["listing_id"]; exists {
 		t.Error("push contains redundant legacy listing_id")
 	}
 	if _, exists := push.Data["base_category_slug"]; exists {
 		t.Error("push contains unnecessary base_category_slug discriminator")
+	}
+}
+
+func TestListingApprovedRendererUsesGenericLocalizationWithoutUsableTitle(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{
+		"recipient_id": "74b061c1-502f-4eb6-83bf-ce9b8df155d7",
+		"listing_id": "24d97762-95d5-4a3d-af75-e3c218d66677",
+		"base_category_slug": "gig",
+		"title": "   ",
+		"occurred_at": "2026-07-25T12:30:00Z"
+	}`)
+
+	got, push, err := NewListingApprovedRenderer().Render(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if got.Metadata["localization_key"] != notification.LocalizationKeyListingApprovedGeneric {
+		t.Errorf("metadata localization_key = %v", got.Metadata["localization_key"])
+	}
+	if push.Data["localization_key"] != notification.LocalizationKeyListingApprovedGeneric {
+		t.Errorf("push localization_key = %q", push.Data["localization_key"])
+	}
+	if push.Data["localization_args"] != `{}` {
+		t.Errorf("push localization_args = %q, want empty object", push.Data["localization_args"])
+	}
+	args, ok := got.Metadata["localization_args"].(map[string]string)
+	if !ok || len(args) != 0 {
+		t.Errorf("metadata localization_args = %#v, want empty object", got.Metadata["localization_args"])
 	}
 }
 

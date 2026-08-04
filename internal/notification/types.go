@@ -25,9 +25,10 @@ const (
 // Flutter localization catalog keys. These are persisted and delivered as
 // semantic identifiers; Lambda never chooses a user locale.
 const (
-	LocalizationKeyMessageReceived    = "notifications.message_received"
-	LocalizationKeyListingApproved    = "notifications.listing_approved"
-	LocalizationKeyGigCategoryMatched = "notifications.gig_category_matched"
+	LocalizationKeyMessageReceived        = "notifications.message_received"
+	LocalizationKeyListingApproved        = "notifications.listing_approved"
+	LocalizationKeyListingApprovedGeneric = "notifications.listing_approved_generic"
+	LocalizationKeyGigCategoryMatched     = "notifications.gig_category_matched"
 )
 
 // Notification.EntityType values.

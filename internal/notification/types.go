@@ -22,11 +22,18 @@ const (
 	TypeGigCategoryMatched = "gig_category_matched"
 )
 
+// Flutter localization catalog keys. These are persisted and delivered as
+// semantic identifiers; Lambda never chooses a user locale.
+const (
+	LocalizationKeyMessageReceived    = "notifications.message_received"
+	LocalizationKeyListingApproved    = "notifications.listing_approved"
+	LocalizationKeyGigCategoryMatched = "notifications.gig_category_matched"
+)
+
 // Notification.EntityType values.
 const (
 	EntityTypeThread  = "thread"
 	EntityTypeListing = "listing"
-	EntityTypeGig     = "gig"
 )
 
 // Stable base_categories.slug values used to route family-specific listing

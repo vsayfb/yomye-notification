@@ -46,15 +46,26 @@ func TestListingApprovedRenderer(t *testing.T) {
 			notification.BaseCategoryGig,
 		)
 	}
-	if push.Data["listing_id"] != got.EntityID {
-		t.Errorf("push listing_id = %q, want %q", push.Data["listing_id"], got.EntityID)
+	if got.Metadata["localization_key"] != notification.LocalizationKeyListingApproved {
+		t.Errorf("metadata localization_key = %v", got.Metadata["localization_key"])
 	}
-	if push.Data["base_category_slug"] != notification.BaseCategoryGig {
-		t.Errorf(
-			"push base_category_slug = %q, want %q",
-			push.Data["base_category_slug"],
-			notification.BaseCategoryGig,
-		)
+	if push.Data["entity_type"] != notification.EntityTypeListing {
+		t.Errorf("push entity_type = %q, want %q", push.Data["entity_type"], notification.EntityTypeListing)
+	}
+	if push.Data["entity_id"] != got.EntityID {
+		t.Errorf("push entity_id = %q, want %q", push.Data["entity_id"], got.EntityID)
+	}
+	if push.Data["localization_key"] != notification.LocalizationKeyListingApproved {
+		t.Errorf("push localization_key = %q", push.Data["localization_key"])
+	}
+	if push.Data["localization_args"] != `{"title":"Elektrikçi Aranıyor"}` {
+		t.Errorf("push localization_args = %q", push.Data["localization_args"])
+	}
+	if _, exists := push.Data["listing_id"]; exists {
+		t.Error("push contains redundant legacy listing_id")
+	}
+	if _, exists := push.Data["base_category_slug"]; exists {
+		t.Error("push contains unnecessary base_category_slug discriminator")
 	}
 }
 

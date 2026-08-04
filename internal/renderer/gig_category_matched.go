@@ -31,29 +31,34 @@ func (r *GigCategoryMatchedRenderer) Render(
 
 	title := "New gig in your category"
 	body := "A gig matching your category just went live near you."
+	localizationArgs := map[string]string{}
 
 	n := notification.NewNotification(
 		evt.RecipientID,
 		nil, // system-matched, no acting user
 		notification.TypeGigCategoryMatched,
-		notification.EntityTypeGig,
+		notification.EntityTypeListing,
 		evt.GigID.String(),
 		title,
 		body,
-		map[string]any{
+		notification.AddLocalizationMetadata(map[string]any{
 			"category_id": evt.CategoryID,
-		},
+		}, notification.LocalizationKeyGigCategoryMatched, localizationArgs),
 	)
 
-	push := &notification.PushNotification{
-		RecipientID: evt.RecipientID.String(),
-		Title:       title,
-		Body:        body,
-		Data: map[string]string{
-			"type":        notification.TypeGigCategoryMatched,
-			"gig_id":      evt.GigID.String(),
+	push, err := notification.NewSemanticPush(
+		evt.RecipientID.String(),
+		n,
+		notification.LocalizationKeyGigCategoryMatched,
+		localizationArgs,
+		title,
+		body,
+		map[string]string{
 			"category_id": evt.CategoryID.String(),
 		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gig_category_matched: build semantic push: %w", err)
 	}
 
 	return n, push, nil

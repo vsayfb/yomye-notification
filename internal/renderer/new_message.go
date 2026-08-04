@@ -41,6 +41,10 @@ func (r *NewMessageRenderer) Render(
 		return nil, nil, fmt.Errorf("new_message: invalid sender_id: %w", err)
 	}
 
+	localizationArgs := map[string]string{
+		"name": evt.SenderName,
+	}
+
 	n := notification.NewNotification(
 		recipientID,
 		&senderID,
@@ -49,22 +53,26 @@ func (r *NewMessageRenderer) Render(
 		evt.ThreadID,
 		evt.SenderName,
 		evt.MessagePreview,
-		map[string]any{
+		notification.AddLocalizationMetadata(map[string]any{
+			"gig_id":     evt.GigID,
+			"message_id": evt.MessageID,
+		}, notification.LocalizationKeyMessageReceived, localizationArgs),
+	)
+
+	push, err := notification.NewSemanticPush(
+		evt.RecipientID,
+		n,
+		notification.LocalizationKeyMessageReceived,
+		localizationArgs,
+		evt.SenderName,
+		evt.MessagePreview,
+		map[string]string{
 			"gig_id":     evt.GigID,
 			"message_id": evt.MessageID,
 		},
 	)
-
-	push := &notification.PushNotification{
-		RecipientID: evt.RecipientID,
-		Title:       evt.SenderName,
-		Body:        evt.MessagePreview,
-		Data: map[string]string{
-			"type":       notification.TypeMessageReceived,
-			"thread_id":  evt.ThreadID,
-			"gig_id":     evt.GigID,
-			"message_id": evt.MessageID,
-		},
+	if err != nil {
+		return nil, nil, fmt.Errorf("new_message: build semantic push: %w", err)
 	}
 
 	return n, push, nil

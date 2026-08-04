@@ -53,6 +53,9 @@ func (r *ListingApprovedRenderer) Render(
 
 	title := "Your listing was approved"
 	body := fmt.Sprintf("%s is now live.", evt.Title)
+	localizationArgs := map[string]string{
+		"title": evt.Title,
+	}
 
 	n := notification.NewNotification(
 		recipientID,
@@ -62,21 +65,23 @@ func (r *ListingApprovedRenderer) Render(
 		listingID.String(),
 		title,
 		body,
-		map[string]any{
+		notification.AddLocalizationMetadata(map[string]any{
 			"listing_id":         listingID.String(),
 			"base_category_slug": evt.BaseCategorySlug,
-		},
+		}, notification.LocalizationKeyListingApproved, localizationArgs),
 	)
 
-	push := &notification.PushNotification{
-		RecipientID: evt.RecipientID,
-		Title:       title,
-		Body:        body,
-		Data: map[string]string{
-			"type":               notification.TypeListingApproved,
-			"listing_id":         listingID.String(),
-			"base_category_slug": evt.BaseCategorySlug,
-		},
+	push, err := notification.NewSemanticPush(
+		evt.RecipientID,
+		n,
+		notification.LocalizationKeyListingApproved,
+		localizationArgs,
+		title,
+		body,
+		nil,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing_approved: build semantic push: %w", err)
 	}
 
 	return n, push, nil

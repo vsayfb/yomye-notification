@@ -74,7 +74,7 @@ func loadAWS(ctx context.Context) (*Config, error) {
 			SSLMode:  "require",
 		},
 		APP: AppConfig{
-			Env:                 EnvironmentProduction,
+			Env:                 EnvironmentStaging,
 			FirebaseCredentials: &creds,
 		},
 	}, nil

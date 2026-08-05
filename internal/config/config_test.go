@@ -4,40 +4,57 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/vsayfb/gig-platform-notification-lambda/pkg/fb"
 )
 
-func TestLoadRejectsUnknownEnvironmentBeforeLoadingLocalConfig(t *testing.T) {
-	t.Setenv(AppEnv, "staging")
-	t.Setenv(AWSLambdaFunctionName, "")
+func TestLoadRejectsUnknownEnvironment(t *testing.T) {
+	t.Setenv(AppEnv, "stage")
 
 	_, err := Load(context.Background())
-	if err == nil {
-		t.Fatal("Load() error = nil, want unsupported environment error")
-	}
-	if !strings.Contains(err.Error(), "unsupported APP_ENV") {
-		t.Fatalf("Load() error = %q, want unsupported APP_ENV error", err)
+	if err == nil || !strings.Contains(err.Error(), "unsupported APP_ENV") {
+		t.Fatalf("Load() error = %v, want unsupported APP_ENV error", err)
 	}
 }
 
-func TestUseAWSConfig(t *testing.T) {
-	tests := []struct {
-		name       string
-		env        string
-		lambdaName string
-		want       bool
-	}{
-		{name: "production", env: EnvironmentProduction, want: true},
-		{name: "prod alias", env: EnvironmentProd, want: true},
-		{name: "Lambda without APP_ENV", lambdaName: "notification-service", want: true},
-		{name: "local development", env: EnvironmentDevelopment, want: false},
-		{name: "local without environment", want: false},
+func TestProductionFailsClearlyUntilGCPConfigExists(t *testing.T) {
+	t.Setenv(AppEnv, EnvironmentProduction)
+
+	config, err := Load(context.Background())
+	if config != nil {
+		t.Fatalf("Load() config = %#v, want nil", config)
+	}
+	if err == nil || !strings.Contains(err.Error(), "GCP production configuration is not implemented") {
+		t.Fatalf("Load() error = %v, want explicit GCP implementation error", err)
+	}
+}
+
+func TestFirebaseCredentialsUseInMemoryValueInStaging(t *testing.T) {
+	credentials := &fb.FirebaseServiceAccount{
+		Type:        "service_account",
+		ProjectID:   "test-project",
+		PrivateKey:  "private-key",
+		ClientEmail: "firebase@example.iam.gserviceaccount.com",
+	}
+	app := AppConfig{
+		Env:                 EnvironmentStaging,
+		FirebaseCredentials: credentials,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := useAWSConfig(tt.env, tt.lambdaName); got != tt.want {
-				t.Errorf("useAWSConfig(%q, %q) = %v, want %v", tt.env, tt.lambdaName, got, tt.want)
-			}
-		})
+	got, err := app.GetFireBaseCredentials()
+	if err != nil {
+		t.Fatalf("GetFireBaseCredentials() error = %v", err)
+	}
+	if got != credentials {
+		t.Fatalf("GetFireBaseCredentials() = %p, want %p", got, credentials)
+	}
+}
+
+func TestFirebaseCredentialsRequireConfiguredSource(t *testing.T) {
+	app := AppConfig{Env: EnvironmentStaging}
+
+	_, err := app.GetFireBaseCredentials()
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("GetFireBaseCredentials() error = %v, want not configured error", err)
 	}
 }

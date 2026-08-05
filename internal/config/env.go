@@ -47,18 +47,15 @@ func getEnv(key, defaultValue string) string {
 }
 
 func (c *AppConfig) GetFireBaseCredentials() (*fb.FirebaseServiceAccount, error) {
-
-	if c.Env == EnvironmentProduction {
-
-		if c.FirebaseCredentials == nil {
-			return nil, fmt.Errorf("firebase credentials are not configured")
-		}
-
+	if c.FirebaseCredentials != nil {
 		return c.FirebaseCredentials, nil
 	}
+	if c.FirebaseCredentialsPath == "" {
+		return nil, fmt.Errorf("firebase credentials are not configured")
+	}
 
-	if _, err := os.Stat(c.FirebaseCredentialsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("fcm: credentials file not found at %s: %w", c.FirebaseCredentialsPath, err)
+	if _, err := os.Stat(c.FirebaseCredentialsPath); err != nil {
+		return nil, fmt.Errorf("fcm: credentials file unavailable at %s: %w", c.FirebaseCredentialsPath, err)
 	}
 
 	credBytes, err := os.ReadFile(c.FirebaseCredentialsPath)

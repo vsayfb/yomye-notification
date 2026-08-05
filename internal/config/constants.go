@@ -5,8 +5,8 @@ const AWSLambdaFunctionName = "AWS_LAMBDA_FUNCTION_NAME"
 
 const (
 	EnvironmentDevelopment = "development"
+	EnvironmentStaging     = "staging"
 	EnvironmentProduction  = "production"
-	EnvironmentProd        = "prod"
 )
 
 const (

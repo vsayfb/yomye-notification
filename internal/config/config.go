@@ -37,27 +37,23 @@ type DBConfig struct {
 func Load(ctx context.Context) (*Config, error) {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv(AppEnv)))
 
-	if useAWSConfig(env, os.Getenv(AWSLambdaFunctionName)) {
+	switch env {
+	case "", EnvironmentDevelopment:
+		return loadEnv()
+	case EnvironmentStaging:
 		return loadAWS(ctx)
-	}
-
-	if env != "" && env != EnvironmentDevelopment {
+	case EnvironmentProduction:
+		return loadGCP(ctx)
+	default:
 		return nil, fmt.Errorf(
-			"unsupported %s value %q; expected %q or %q",
+			"unsupported %s value %q; expected %q, %q, or %q",
 			AppEnv,
 			env,
 			EnvironmentDevelopment,
+			EnvironmentStaging,
 			EnvironmentProduction,
 		)
 	}
-
-	return loadEnv()
-}
-
-func useAWSConfig(env, lambdaFunctionName string) bool {
-	return env == EnvironmentProduction ||
-		env == EnvironmentProd ||
-		(env == "" && lambdaFunctionName != "")
 }
 
 func (c *DBConfig) DSN() string {

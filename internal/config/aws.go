@@ -13,7 +13,7 @@ import (
 	"github.com/vsayfb/gig-platform-notification-lambda/pkg/fb"
 )
 
-const ParameterPath = "/yevmiye/app/"
+const ParameterPath = "/yevmiye/staging/"
 
 const (
 	ParameterRDSSecretArn        = "rds-secret-arn"

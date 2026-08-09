@@ -49,6 +49,7 @@ func NewHandler() (*handler.Handler, error) {
 	notifRepo := postgres.NewNotificationRepository(pool)
 	tokenRepo := postgres.NewFCMTokenRepository(pool)
 	subscriberRepo := postgres.NewSubscriberRepository(pool)
+	eventDeduplicator := postgres.NewEventDeduplicator(pool)
 	pushProvider := firebase.NewPushProvider(fcmClient)
 
 	dispatcher := service.NewDispatcher()
@@ -58,7 +59,7 @@ func NewHandler() (*handler.Handler, error) {
 	dispatcher.Register(notification.EventGigCategoryMatched, renderer.NewGigCategoryMatchedRenderer())
 	dispatcher.RegisterFanOut(notification.EventGigCategoryMatched, service.NewGigCategoryMatchedResolver(subscriberRepo))
 
-	svc := service.New(dispatcher, notifRepo, tokenRepo, pushProvider)
+	svc := service.New(dispatcher, notifRepo, tokenRepo, pushProvider, eventDeduplicator)
 
 	return handler.New(svc), nil
 }

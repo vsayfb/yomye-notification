@@ -28,7 +28,7 @@ func TestHandleOneDeletesUnregisteredTokensAndMarksPushed(t *testing.T) {
 			UnregisteredTokens: []string{"dead-token"},
 		},
 	}
-	svc := New(nil, notifRepo, tokenRepo, pushProvider)
+	svc := New(nil, notifRepo, tokenRepo, pushProvider, nil)
 
 	err := svc.handleOne(context.Background(), fakeRenderer{userID: userID}, json.RawMessage(`{}`))
 	if err != nil {
@@ -60,7 +60,7 @@ func TestHandleOneDeletesUnregisteredTokensButRetriesTransientFailure(t *testing
 		},
 		err: errors.New("FCM unavailable"),
 	}
-	svc := New(nil, notifRepo, tokenRepo, pushProvider)
+	svc := New(nil, notifRepo, tokenRepo, pushProvider, nil)
 
 	err := svc.handleOne(context.Background(), fakeRenderer{userID: userID}, json.RawMessage(`{}`))
 	if err == nil {

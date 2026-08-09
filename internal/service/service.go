@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/event"
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/fcm"
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/notification"
@@ -22,6 +24,7 @@ type Service struct {
 	notifRepo    notification.NotificationRepository
 	tokenRepo    fcm.TokenRepository
 	pushProvider notification.PushProvider
+	deduplicator event.Deduplicator
 }
 
 func New(
@@ -29,12 +32,14 @@ func New(
 	notifRepo notification.NotificationRepository,
 	tokenRepo fcm.TokenRepository,
 	pushProvider notification.PushProvider,
+	deduplicator event.Deduplicator,
 ) *Service {
 	return &Service{
 		dispatcher:   dispatcher,
 		notifRepo:    notifRepo,
 		tokenRepo:    tokenRepo,
 		pushProvider: pushProvider,
+		deduplicator: deduplicator,
 	}
 }
 
@@ -46,6 +51,92 @@ func New(
 // payload is rendered, persisted, and pushed independently, so one bad
 // recipient (malformed id, DB hiccup, etc.) can't sink the rest.
 func (s *Service) Handle(ctx context.Context, env event.Envelope) error {
+	versioned := event.RequiresVersionedEnvelope(env.Type) || env.EventID != uuid.Nil || env.Version != 0
+	if !versioned {
+		return s.handleEvent(ctx, env)
+	}
+	if env.EventID == uuid.Nil {
+		return fmt.Errorf("event envelope: event_id is required for type %q", env.Type)
+	}
+	if env.Version != event.CurrentVersion {
+		return fmt.Errorf(
+			"event envelope: unsupported version %d for type %q; supported version is %d",
+			env.Version,
+			env.Type,
+			event.CurrentVersion,
+		)
+	}
+	if s.deduplicator == nil {
+		return fmt.Errorf("event envelope: idempotency repository is not configured")
+	}
+
+	claimToken := uuid.New()
+	claimStatus, err := s.deduplicator.Claim(
+		ctx,
+		env.EventID,
+		env.Type,
+		env.Version,
+		claimToken,
+	)
+	if err != nil {
+		return fmt.Errorf("claim event %s: %w", env.EventID, err)
+	}
+	switch claimStatus {
+	case event.ClaimAlreadyProcessed:
+		slog.InfoContext(
+			ctx,
+			"skip already processed event",
+			"event_id",
+			env.EventID,
+			"type",
+			env.Type,
+			"version",
+			env.Version,
+		)
+		return nil
+	case event.ClaimInProgress:
+		return fmt.Errorf("event %s is already being processed", env.EventID)
+	case event.ClaimAcquired:
+		slog.InfoContext(
+			ctx,
+			"event claim acquired",
+			"event_id", env.EventID,
+			"type", env.Type,
+			"version", env.Version,
+		)
+	default:
+		return fmt.Errorf("event %s returned unknown claim status %d", env.EventID, claimStatus)
+	}
+
+	if err := s.handleEvent(ctx, env); err != nil {
+		releaseErr := s.deduplicator.Release(ctx, env.EventID, claimToken)
+		if releaseErr != nil {
+			return errors.Join(err, fmt.Errorf("release event claim: %w", releaseErr))
+		}
+		return err
+	}
+	slog.InfoContext(
+		ctx,
+		"event work completed",
+		"event_id", env.EventID,
+		"type", env.Type,
+		"version", env.Version,
+	)
+
+	if err := s.deduplicator.Complete(ctx, env.EventID, claimToken); err != nil {
+		return fmt.Errorf("mark event %s processed: %w", env.EventID, err)
+	}
+	slog.InfoContext(
+		ctx,
+		"event marked processed",
+		"event_id", env.EventID,
+		"type", env.Type,
+		"version", env.Version,
+	)
+	return nil
+}
+
+func (s *Service) handleEvent(ctx context.Context, env event.Envelope) error {
 	r, err := s.dispatcher.Renderer(env.Type)
 
 	if err != nil {

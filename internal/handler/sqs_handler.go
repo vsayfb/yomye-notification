@@ -45,10 +45,36 @@ func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
 				return nil // isolated: don't let one bad record cancel the rest of the batch
 			}
 
+			slog.InfoContext(
+				ctx,
+				"process notification event",
+				"type", env.Type,
+				"event_id", env.EventID,
+				"version", env.Version,
+				"message_id", record.MessageId,
+			)
+
 			if err := h.service.Handle(ctx, env); err != nil {
-				slog.Error("handle notification event", "error", err, "type", env.Type, "message_id", record.MessageId)
+				slog.Error(
+					"handle notification event",
+					"error", err,
+					"type", env.Type,
+					"event_id", env.EventID,
+					"version", env.Version,
+					"message_id", record.MessageId,
+				)
 				failed.Add(1)
+				return nil
 			}
+
+			slog.InfoContext(
+				ctx,
+				"notification event processed",
+				"type", env.Type,
+				"event_id", env.EventID,
+				"version", env.Version,
+				"message_id", record.MessageId,
+			)
 
 			return nil
 		})

@@ -3,9 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"sync/atomic"
+	"sync"
 
 	"github.com/aws/aws-lambda-go/events"
 	"golang.org/x/sync/errgroup"
@@ -29,11 +28,12 @@ func New(svc *service.Service) *Handler {
 	return &Handler{service: svc}
 }
 
-func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
+func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) (events.SQSEventResponse, error) {
 	var g errgroup.Group
 	g.SetLimit(maxConcurrentRecords)
 
-	var failed atomic.Int32
+	var failuresMu sync.Mutex
+	failures := make([]events.SQSBatchItemFailure, 0)
 
 	for _, record := range sqsEvent.Records {
 		g.Go(func() error {
@@ -41,8 +41,7 @@ func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
 
 			if err := json.Unmarshal([]byte(record.Body), &env); err != nil {
 				slog.Error("unmarshal envelope", "error", err, "message_id", record.MessageId)
-				failed.Add(1)
-				return nil // isolated: don't let one bad record cancel the rest of the batch
+				return nil // malformed transport payload is a non-retryable poison record
 			}
 
 			slog.InfoContext(
@@ -55,6 +54,18 @@ func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
 			)
 
 			if err := h.service.Handle(ctx, env); err != nil {
+				if code, ok := service.NonRetryableCode(err); ok {
+					slog.WarnContext(
+						ctx,
+						"discard non-retryable notification event",
+						"diagnostic_code", code,
+						"type", env.Type,
+						"event_id", env.EventID,
+						"version", env.Version,
+						"message_id", record.MessageId,
+					)
+					return nil
+				}
 				slog.Error(
 					"handle notification event",
 					"error", err,
@@ -63,7 +74,9 @@ func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
 					"version", env.Version,
 					"message_id", record.MessageId,
 				)
-				failed.Add(1)
+				failuresMu.Lock()
+				failures = append(failures, events.SQSBatchItemFailure{ItemIdentifier: record.MessageId})
+				failuresMu.Unlock()
 				return nil
 			}
 
@@ -80,11 +93,7 @@ func (h *Handler) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
 		})
 	}
 
-	_ = g.Wait() // every goroutine above returns nil; failures are tracked via `failed`, not propagated as errors
+	_ = g.Wait() // every goroutine returns nil; retryable failures are returned by record ID
 
-	if n := failed.Load(); n > 0 {
-		return fmt.Errorf("failed to process %d message(s)", n)
-	}
-
-	return nil
+	return events.SQSEventResponse{BatchItemFailures: failures}, nil
 }

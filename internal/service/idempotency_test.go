@@ -51,6 +51,32 @@ func TestHandleCompletesVersionedEventAfterSuccessfulWork(t *testing.T) {
 	}
 }
 
+func TestHandleUsesNewMessageIDForConcurrentSafeClaim(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{"message_id":"64b7f2c1a3e5d7890abc5678"}`)
+	wantClaimID, err := event.NewMessageClaimID(payload)
+	if err != nil {
+		t.Fatalf("NewMessageClaimID() error = %v", err)
+	}
+	deduplicator := &fakeDeduplicator{status: event.ClaimAlreadyProcessed}
+	svc := New(nil, nil, nil, nil, deduplicator)
+
+	err = svc.Handle(context.Background(), event.Envelope{
+		Type:    notification.EventNewMessage,
+		Payload: payload,
+	})
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if deduplicator.claimedEventID != wantClaimID {
+		t.Errorf("claimed event_id = %s, want %s derived from message_id", deduplicator.claimedEventID, wantClaimID)
+	}
+	if deduplicator.claimedVersion != event.CurrentVersion {
+		t.Errorf("claimed version = %d, want %d", deduplicator.claimedVersion, event.CurrentVersion)
+	}
+}
+
 func TestHandleAcknowledgesAlreadyProcessedEventWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 

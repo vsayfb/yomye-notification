@@ -51,17 +51,28 @@ func New(
 // payload is rendered, persisted, and pushed independently, so one bad
 // recipient (malformed id, DB hiccup, etc.) can't sink the rest.
 func (s *Service) Handle(ctx context.Context, env event.Envelope) error {
+	idempotencyID := env.EventID
+	idempotencyVersion := env.Version
 	versioned := event.RequiresVersionedEnvelope(env.Type) || env.EventID != uuid.Nil || env.Version != 0
+	if env.Type == notification.EventNewMessage {
+		claimID, err := event.NewMessageClaimID(env.Payload)
+		if err != nil {
+			return nonRetryable("malformed_event_payload", err)
+		}
+		idempotencyID = claimID
+		idempotencyVersion = event.CurrentVersion
+		versioned = true
+	}
 	if !versioned {
 		return s.handleEvent(ctx, env)
 	}
-	if env.EventID == uuid.Nil {
+	if idempotencyID == uuid.Nil {
 		return fmt.Errorf("event envelope: event_id is required for type %q", env.Type)
 	}
-	if env.Version != event.CurrentVersion {
+	if idempotencyVersion != event.CurrentVersion {
 		return fmt.Errorf(
 			"event envelope: unsupported version %d for type %q; supported version is %d",
-			env.Version,
+			idempotencyVersion,
 			env.Type,
 			event.CurrentVersion,
 		)
@@ -73,13 +84,13 @@ func (s *Service) Handle(ctx context.Context, env event.Envelope) error {
 	claimToken := uuid.New()
 	claimStatus, err := s.deduplicator.Claim(
 		ctx,
-		env.EventID,
+		idempotencyID,
 		env.Type,
-		env.Version,
+		idempotencyVersion,
 		claimToken,
 	)
 	if err != nil {
-		return fmt.Errorf("claim event %s: %w", env.EventID, err)
+		return fmt.Errorf("claim event %s: %w", idempotencyID, err)
 	}
 	switch claimStatus {
 	case event.ClaimAlreadyProcessed:
@@ -87,29 +98,29 @@ func (s *Service) Handle(ctx context.Context, env event.Envelope) error {
 			ctx,
 			"skip already processed event",
 			"event_id",
-			env.EventID,
+			idempotencyID,
 			"type",
 			env.Type,
 			"version",
-			env.Version,
+			idempotencyVersion,
 		)
 		return nil
 	case event.ClaimInProgress:
-		return fmt.Errorf("event %s is already being processed", env.EventID)
+		return fmt.Errorf("event %s is already being processed", idempotencyID)
 	case event.ClaimAcquired:
 		slog.InfoContext(
 			ctx,
 			"event claim acquired",
-			"event_id", env.EventID,
+			"event_id", idempotencyID,
 			"type", env.Type,
-			"version", env.Version,
+			"version", idempotencyVersion,
 		)
 	default:
-		return fmt.Errorf("event %s returned unknown claim status %d", env.EventID, claimStatus)
+		return fmt.Errorf("event %s returned unknown claim status %d", idempotencyID, claimStatus)
 	}
 
 	if err := s.handleEvent(ctx, env); err != nil {
-		releaseErr := s.deduplicator.Release(ctx, env.EventID, claimToken)
+		releaseErr := s.deduplicator.Release(ctx, idempotencyID, claimToken)
 		if releaseErr != nil {
 			return errors.Join(err, fmt.Errorf("release event claim: %w", releaseErr))
 		}
@@ -118,20 +129,20 @@ func (s *Service) Handle(ctx context.Context, env event.Envelope) error {
 	slog.InfoContext(
 		ctx,
 		"event work completed",
-		"event_id", env.EventID,
+		"event_id", idempotencyID,
 		"type", env.Type,
-		"version", env.Version,
+		"version", idempotencyVersion,
 	)
 
-	if err := s.deduplicator.Complete(ctx, env.EventID, claimToken); err != nil {
-		return fmt.Errorf("mark event %s processed: %w", env.EventID, err)
+	if err := s.deduplicator.Complete(ctx, idempotencyID, claimToken); err != nil {
+		return fmt.Errorf("mark event %s processed: %w", idempotencyID, err)
 	}
 	slog.InfoContext(
 		ctx,
 		"event marked processed",
-		"event_id", env.EventID,
+		"event_id", idempotencyID,
 		"type", env.Type,
-		"version", env.Version,
+		"version", idempotencyVersion,
 	)
 	return nil
 }
@@ -140,7 +151,7 @@ func (s *Service) handleEvent(ctx context.Context, env event.Envelope) error {
 	r, err := s.dispatcher.Renderer(env.Type)
 
 	if err != nil {
-		return err
+		return nonRetryable("unknown_event_type", err)
 	}
 
 	payloads, err := s.resolvePayloads(ctx, env)
@@ -178,7 +189,7 @@ func (s *Service) handleOne(ctx context.Context, r renderer.Renderer, payload js
 	n, push, err := r.Render(ctx, payload)
 
 	if err != nil {
-		return fmt.Errorf("render notification: %w", err)
+		return nonRetryable("malformed_event_payload", fmt.Errorf("render notification: %w", err))
 	}
 
 	persisted, err := s.notifRepo.Create(ctx, n)

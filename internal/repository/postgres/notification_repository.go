@@ -16,17 +16,9 @@ import (
 // notification.NotificationRepository. It is persistence-only: no
 // notification-specific business logic lives here.
 //
-// Dedup guard: notifications_unique on (user_id, entity_type, entity_id,
-// type). Known limitation: this key isn't fine-grained enough to tell
-// "the same event redelivered" apart from "a genuinely new occurrence
-// sharing the same entity" — e.g. two different messages in the same
-// thread collide on this key just like a redelivery of the same message
-// would. We deliberately resolve that ambiguity by treating a conflict as
-// "already have a row" and never re-pushing once pushed_at is set, since
-// that's the safer failure mode (a missed follow-up notification is far
-// better than spamming a push on every SQS redelivery). If per-message
-// granularity turns out to matter, this needs a dedicated idempotency key
-// (e.g. a source_event_id column) rather than reusing entity_id for it.
+// Rows with source_event_id use the producer occurrence as their dedup key;
+// rows without it retain the legacy entity-based key. EntityID is always a
+// navigation target and is never repurposed for message idempotency.
 type NotificationRepository struct {
 	pool *pgxpool.Pool
 }
@@ -48,21 +40,35 @@ func (r *NotificationRepository) Create(ctx context.Context, n *notification.Not
 	// than DO NOTHING: DO NOTHING can't RETURNING the pre-existing row,
 	// and the caller needs that row (specifically pushed_at) regardless
 	// of whether this call inserted or hit the conflict.
-	const query = `
+	const legacyQuery = `
 		INSERT INTO notifications
-			(id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, created_at)
+			(id, source_event_id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, created_at)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (user_id, entity_type, entity_id, type)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (user_id, entity_type, entity_id, type) WHERE source_event_id IS NULL
 		DO UPDATE SET id = notifications.id
-		RETURNING id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, pushed_at, created_at
+		RETURNING id, source_event_id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, pushed_at, created_at
 	`
+	const sourceEventQuery = `
+		INSERT INTO notifications
+			(id, source_event_id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, created_at)
+		VALUES
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (type, source_event_id) WHERE source_event_id IS NOT NULL
+		DO UPDATE SET id = notifications.id
+		RETURNING id, source_event_id, user_id, actor_id, type, entity_type, entity_id, title, body, metadata, read_at, pushed_at, created_at
+	`
+	query := legacyQuery
+	if n.SourceEventID != nil {
+		query = sourceEventQuery
+	}
 
 	var persisted notification.Notification
 	var rawMetadata []byte
 
 	err = r.pool.QueryRow(ctx, query,
 		n.ID,
+		n.SourceEventID,
 		n.UserID,
 		n.ActorID,
 		n.Type,
@@ -75,6 +81,7 @@ func (r *NotificationRepository) Create(ctx context.Context, n *notification.Not
 		n.CreatedAt,
 	).Scan(
 		&persisted.ID,
+		&persisted.SourceEventID,
 		&persisted.UserID,
 		&persisted.ActorID,
 		&persisted.Type,

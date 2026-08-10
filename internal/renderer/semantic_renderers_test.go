@@ -18,10 +18,11 @@ func TestNewMessageRendererEmitsSemanticPayload(t *testing.T) {
 		"recipient_id":"` + uuid.NewString() + `",
 		"sender_id":"` + uuid.NewString() + `",
 		"sender_name":"Alex",
-		"thread_id":"thread-123",
-		"gig_id":"listing-123",
-		"message_id":"message-123",
-		"message_preview":"Hello"
+		"thread_id":"64b7f2c1a3e5d7890abc1234",
+		"gig_id":"` + uuid.NewString() + `",
+		"message_id":"64b7f2c1a3e5d7890abc5678",
+		"message_preview":"Hello",
+		"occurred_at":"2026-08-10T12:34:56Z"
 	}`)
 
 	n, push, err := NewNewMessageRenderer().Render(context.Background(), payload)
@@ -35,6 +36,61 @@ func TestNewMessageRendererEmitsSemanticPayload(t *testing.T) {
 		notification.LocalizationKeyMessageReceived,
 		`{"name":"Alex"}`,
 	)
+	if n.SourceEventID == nil || *n.SourceEventID != "64b7f2c1a3e5d7890abc5678" {
+		t.Errorf("source_event_id = %v, want message_id", n.SourceEventID)
+	}
+	if n.EntityID != "64b7f2c1a3e5d7890abc1234" {
+		t.Errorf("entity_id = %q, want thread_id", n.EntityID)
+	}
+	if push.Data["message_id"] != "64b7f2c1a3e5d7890abc5678" {
+		t.Errorf("push message_id = %q", push.Data["message_id"])
+	}
+	if n.Metadata["thread_id"] != n.EntityID || push.Data["thread_id"] != n.EntityID {
+		t.Errorf("thread routing metadata=%v push=%q entity=%q", n.Metadata["thread_id"], push.Data["thread_id"], n.EntityID)
+	}
+}
+
+func TestNewMessageRendererRoutesDirectMessageWithEmptyGigID(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{
+		"recipient_id":"` + uuid.NewString() + `",
+		"sender_id":"` + uuid.NewString() + `",
+		"sender_name":"Alex",
+		"thread_id":"64b7f2c1a3e5d7890abc1234",
+		"gig_id":"",
+		"message_id":"64b7f2c1a3e5d7890abc5678",
+		"message_preview":"[Ek]",
+		"occurred_at":"2026-08-10T12:34:56Z"
+	}`)
+
+	n, push, err := NewNewMessageRenderer().Render(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if n.Metadata["gig_id"] != "" || push.Data["gig_id"] != "" {
+		t.Errorf("direct-message gig_id metadata=%v push=%q, want empty", n.Metadata["gig_id"], push.Data["gig_id"])
+	}
+}
+
+func TestNewMessageRendererRejectsSenderAsRecipient(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.NewString()
+	payload := json.RawMessage(`{
+		"recipient_id":"` + userID + `",
+		"sender_id":"` + userID + `",
+		"sender_name":"Alex",
+		"thread_id":"64b7f2c1a3e5d7890abc1234",
+		"gig_id":"",
+		"message_id":"64b7f2c1a3e5d7890abc5678",
+		"message_preview":"Hello",
+		"occurred_at":"2026-08-10T12:34:56Z"
+	}`)
+
+	if _, _, err := NewNewMessageRenderer().Render(context.Background(), payload); err == nil {
+		t.Fatal("Render() error = nil, want sender/recipient validation error")
+	}
 }
 
 func TestGigCategoryMatchedRendererUsesListingSemanticTarget(t *testing.T) {

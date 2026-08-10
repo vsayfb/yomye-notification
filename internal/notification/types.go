@@ -46,6 +46,12 @@ const (
 type Notification struct {
 	ID uuid.UUID `db:"id"`
 
+	// SourceEventID identifies the producer-side occurrence independently
+	// from EntityID, which remains the client navigation target. It is set
+	// for chat messages so two messages in one thread remain distinct while
+	// an SQS redelivery of the same message stays idempotent.
+	SourceEventID *string `db:"source_event_id"`
+
 	// Recipient
 	UserID uuid.UUID `db:"user_id"`
 
@@ -55,10 +61,8 @@ type Notification struct {
 	// Business event
 	Type string `db:"type"`
 
-	// Navigation target. Also doubles as (part of) the dedup key via
-	// notifications_unique (user_id, entity_type, entity_id, type) — so
-	// note that any two occurrences sharing entity_type/entity_id/type
-	// for the same user collapse into one row (see PushedAt below).
+	// Navigation target. Rows without a SourceEventID retain the legacy
+	// (user_id, entity_type, entity_id, type) idempotency key.
 	EntityType string `db:"entity_type"`
 	EntityID   string `db:"entity_id"`
 

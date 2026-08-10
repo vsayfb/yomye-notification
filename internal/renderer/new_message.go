@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -40,6 +41,32 @@ func (r *NewMessageRenderer) Render(
 	if err != nil {
 		return nil, nil, fmt.Errorf("new_message: invalid sender_id: %w", err)
 	}
+	if recipientID == senderID {
+		return nil, nil, fmt.Errorf("new_message: recipient_id must differ from sender_id")
+	}
+
+	evt.SenderName = strings.TrimSpace(evt.SenderName)
+	evt.ThreadID = strings.TrimSpace(evt.ThreadID)
+	evt.MessageID = strings.TrimSpace(evt.MessageID)
+	if evt.SenderName == "" {
+		return nil, nil, fmt.Errorf("new_message: sender_name is required")
+	}
+	if !event.IsMongoObjectID(evt.ThreadID) {
+		return nil, nil, fmt.Errorf("new_message: thread_id must be a MongoDB ObjectID")
+	}
+	if !event.IsMongoObjectID(evt.MessageID) {
+		return nil, nil, fmt.Errorf("new_message: message_id must be a MongoDB ObjectID")
+	}
+	if evt.OccurredAt.IsZero() {
+		return nil, nil, fmt.Errorf("new_message: occurred_at is required")
+	}
+	if evt.GigID != "" {
+		gigID, err := uuid.Parse(evt.GigID)
+		if err != nil || gigID == uuid.Nil {
+			return nil, nil, fmt.Errorf("new_message: invalid gig_id")
+		}
+		evt.GigID = gigID.String()
+	}
 
 	localizationArgs := map[string]string{
 		"name": evt.SenderName,
@@ -54,10 +81,12 @@ func (r *NewMessageRenderer) Render(
 		evt.SenderName,
 		evt.MessagePreview,
 		notification.AddLocalizationMetadata(map[string]any{
+			"thread_id":  evt.ThreadID,
 			"gig_id":     evt.GigID,
 			"message_id": evt.MessageID,
 		}, notification.LocalizationKeyMessageReceived, localizationArgs),
 	)
+	n.SourceEventID = &evt.MessageID
 
 	push, err := notification.NewSemanticPush(
 		evt.RecipientID,
@@ -67,6 +96,7 @@ func (r *NewMessageRenderer) Render(
 		evt.SenderName,
 		evt.MessagePreview,
 		map[string]string{
+			"thread_id":  evt.ThreadID,
 			"gig_id":     evt.GigID,
 			"message_id": evt.MessageID,
 		},

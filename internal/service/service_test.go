@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/vsayfb/gig-platform-notification-lambda/internal/event"
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/fcm"
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/notification"
 	"github.com/vsayfb/gig-platform-notification-lambda/internal/renderer"
@@ -75,8 +76,37 @@ func TestHandleOneDeletesUnregisteredTokensButRetriesTransientFailure(t *testing
 	}
 }
 
+func TestMalformedRendererPayloadIsNonRetryable(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := NewDispatcher()
+	dispatcher.Register(notification.EventNewMessage, fakeRenderer{err: errors.New("private payload detail")})
+	svc := New(dispatcher, nil, nil, nil, nil)
+
+	err := svc.Handle(context.Background(), event.Envelope{
+		Type:    notification.EventNewMessage,
+		Payload: json.RawMessage(`{}`),
+	})
+	code, ok := NonRetryableCode(err)
+	if !ok || code != "malformed_event_payload" {
+		t.Fatalf("NonRetryableCode() = %q, %v, want malformed_event_payload, true; err=%v", code, ok, err)
+	}
+}
+
+func TestUnknownEventTypeIsNonRetryable(t *testing.T) {
+	t.Parallel()
+
+	svc := New(NewDispatcher(), nil, nil, nil, nil)
+	err := svc.Handle(context.Background(), event.Envelope{Type: "future_event"})
+	code, ok := NonRetryableCode(err)
+	if !ok || code != "unknown_event_type" {
+		t.Fatalf("NonRetryableCode() = %q, %v, want unknown_event_type, true; err=%v", code, ok, err)
+	}
+}
+
 type fakeRenderer struct {
 	userID uuid.UUID
+	err    error
 }
 
 var _ renderer.Renderer = fakeRenderer{}
@@ -85,6 +115,9 @@ func (r fakeRenderer) Render(
 	context.Context,
 	json.RawMessage,
 ) (*notification.Notification, *notification.PushNotification, error) {
+	if r.err != nil {
+		return nil, nil, r.err
+	}
 	return notification.NewNotification(
 			r.userID,
 			nil,

@@ -11,12 +11,10 @@ import (
 // persistence-only; all notification-specific business logic belongs in
 // the renderers.
 type NotificationRepository interface {
-	// Create persists n, keyed by (user_id, entity_type, entity_id,
-	// type) — notifications_unique. If a row for that key already
-	// exists, the existing row is returned instead of erroring or
-	// silently no-op'ing — callers decide what to do next based on the
-	// returned Notification's PushedAt, not based on whether a new row
-	// was inserted.
+	// Create persists n. Rows carrying SourceEventID use (type,
+	// source_event_id); legacy rows use (user_id, entity_type, entity_id,
+	// type). On conflict the existing row is returned so callers can use
+	// PushedAt to decide whether delivery still needs to be attempted.
 	Create(ctx context.Context, n *Notification) (*Notification, error)
 
 	// MarkPushed records that a push was successfully delivered for the

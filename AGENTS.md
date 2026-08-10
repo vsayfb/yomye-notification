@@ -78,6 +78,8 @@ Registered event types:
 
 Worker-originated events (`listing_approved` and `gig_category_matched`) use a versioned envelope with deterministic `event_id`. Version 1 is currently supported. The ID belongs to the envelope and is the domain-event idempotency key; SQS message ID is logging/transport metadata only. A PostgreSQL claim is acquired before work, processed duplicates are acknowledged, active duplicates remain retryable, and `processed_at` is written only after all required work succeeds.
 
+Chat-originated `new_message` currently uses the legacy unversioned envelope. Its payload contains `recipient_id`, `sender_id`, `sender_name`, `thread_id`, `gig_id`, `message_id`, `message_preview`, and `occurred_at`. `message_id` is the notification source idempotency key; `thread_id` remains the navigation entity. Lambda persists the raw message ID in `source_event_id` and derives a stable UUIDv5 claim ID from it for the existing leased `notification_processed_events` mechanism, preventing concurrent duplicate pushes. An empty `gig_id` means a social direct conversation, while a non-empty gig UUID means an application/listing conversation. Never notify when recipient and sender are the same. Chat owns safe preview construction; Lambda must not generate attachment URLs or log the complete preview.
+
 ### listing_approved
 
 Expected producer contract:
@@ -187,7 +189,7 @@ When changing a key or argument name, treat it as a Flutter contract change. Arg
 
 The notification row is created before attempting push delivery. This is deliberate: the in-app inbox remains durable even when there is no token or FCM is unavailable.
 
-The database deduplication key is:
+The legacy database deduplication key for rows without a source event is:
 
 ```text
 (user_id, entity_type, entity_id, type)
@@ -197,13 +199,13 @@ The database deduplication key is:
 
 Worker-event delivery is deduplicated independently by deterministic envelope `event_id` in `notification_processed_events`. That prevents re-executing the same logical worker event, including concurrent duplicates. Claims have a five-minute lease so a crashed invocation does not block the event forever.
 
-Known limitation: the notification row's own unique key is still not a source-event ID. Two distinct legitimate events with the same user/entity/type can collapse even though their envelope IDs differ. `new_message` events in the same thread are the clearest example, and chat has not adopted the worker's versioned envelope contract. Do not "fix" this with ad hoc metadata comparisons; adding `source_event_id` to notification persistence requires a coordinated Core schema/API change.
+Chat notifications set `notifications.source_event_id = message_id` and use the partial unique key `(type, source_event_id)`. This makes distinct messages in one thread distinct while deduplicating SQS redelivery. `entity_id` remains `thread_id`; never repurpose the message ID as the navigation target. The shared Core-owned schema migration adding this column and replacing the old unconditional entity constraint must be deployed before this Lambda version.
 
 `pushed_at` currently means push processing completed without a retryable error. It may be set when invalid/unregistered tokens were permanently resolved, even if no device received the push. Do not present it as a delivery receipt.
 
 If the user has no FCM tokens, the inbox row remains persisted and `pushed_at` remains null, while the SQS record succeeds. The service does not replay old notifications automatically when a client later registers a token.
 
-The SQS handler processes up to five records concurrently. It currently returns one aggregate error if any record fails, which makes Lambda/SQS retry the whole batch. Successful rows are normally protected by `pushed_at`, but partial batch response support would be a cleaner future improvement. Do not assume record-level acknowledgement exists.
+The SQS handler processes up to five records concurrently and returns an `SQSEventResponse` containing only retryable record failures. Unknown event types and malformed envelopes/payloads are acknowledged after a privacy-safe diagnostic; database and provider failures remain in `BatchItemFailures`. The AWS event-source mapping must enable `ReportBatchItemFailures`, otherwise record-level retry behavior is not active.
 
 ## FCM error handling and token lifecycle
 
@@ -318,7 +320,7 @@ Tests should cover contracts, not only implementation:
 - Distinguish diagnosis from implementation. Do not mutate external infrastructure or sibling repositories merely because it would help.
 - Preserve architecture and existing user changes; make focused patches and proportionate tests.
 - Prefer explicit validation over silent fallback when fallback can misroute a notification.
-- Do not invent missing product contracts. If a new chat event cannot be distinguished as direct versus application conversation from its facts, request/establish the producer contract instead of guessing.
+- Do not invent missing product contracts. The current chat contract uses empty versus non-empty `gig_id` to distinguish direct and application/listing conversations.
 - When a deployment log contradicts local code, verify artifact/version/alias/runtime configuration before rewriting working code.
 - After changing a client-facing payload, provide the exact FCM and persisted shapes the Flutter team must support.
 
@@ -327,8 +329,18 @@ Tests should cover contracts, not only implementation:
 Do not casually fold these into unrelated changes:
 
 - GCP production configuration.
-- SQS partial batch failure responses.
-- A `source_event_id` on notification rows replacing the coarse inbox unique constraint, coordinated with Core.
 - Per-token delivery state that prevents duplicate delivery to successful devices during mixed transient failures.
 - Removal of legacy English title/body after client migration is complete.
 - Backfilling old notification metadata with semantic localization fields.
+
+### Deferred decision: deleting tokens after `INVALID_ARGUMENT`
+
+The current implementation deletes an FCM token only when the original Firebase Admin SDK error is structurally classified as `UNREGISTERED`. Keep that behavior until the following work is deliberately implemented.
+
+Firebase's structured `INVALID_ARGUMENT` is ambiguous: it can describe a malformed notification payload or an invalid registration token. Lambda may treat `messaging.IsInvalidArgument(err)` as a permanent token outcome only after it can prove, independently of the target token, that the outgoing payload is valid.
+
+That future work must include a token-independent validator for this service's complete FCM message shape. At minimum, validate required semantic fields, reserved data keys, string-valued data, JSON-encoded `localization_args`, payload size, and every notification or platform-specific field the service sends. Validation must run before any per-token send. A validation failure is an application error and must never delete a token.
+
+Only after that validator succeeds may a structured per-device `INVALID_ARGUMENT` response be classified as an invalid token and removed from `fcm_tokens`. Do not infer this from HTTP 400, status/message text, or an unstructured error. Add regression tests proving both branches: malformed payloads retain every token, while a validated payload plus structured `INVALID_ARGUMENT` removes only the affected token.
+
+`SendDryRun` is not sufficient evidence by itself because it still validates a targeted message and can reject the target. Revisit the installed Firebase Admin SDK behavior and current FCM documentation when implementing this decision.

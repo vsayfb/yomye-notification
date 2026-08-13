@@ -107,7 +107,12 @@ func (r *NotificationRepository) Create(ctx context.Context, n *notification.Not
 }
 
 func (r *NotificationRepository) MarkPushed(ctx context.Context, id uuid.UUID, at time.Time) error {
-	const query = `UPDATE notifications SET pushed_at = $2 WHERE id = $1`
+	const query = `
+		UPDATE notifications
+		SET pushed_at = $2,
+			updated_at = NOW()
+		WHERE id = $1
+	`
 
 	if _, err := r.pool.Exec(ctx, query, id, at); err != nil {
 		return fmt.Errorf("notification_repository: mark pushed: %w", err)

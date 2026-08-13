@@ -1,47 +1,49 @@
--- =============================================================================
--- Notifications
--- =============================================================================
+BEGIN;
+
+-- This is the current baseline for the Core-owned tables used by Lambda.
+-- The referenced users table must already exist.
 
 CREATE TABLE notifications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_event_id TEXT,
 
-    -- Recipient
     user_id UUID NOT NULL
         REFERENCES users(id) ON DELETE CASCADE,
-
-    -- User who triggered the notification (nullable for system notifications)
     actor_id UUID
         REFERENCES users(id) ON DELETE SET NULL,
 
-    -- Notification type
-    type TEXT NOT NULL,
-
-    -- Target entity
+    type        TEXT NOT NULL,
     entity_type TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
+    entity_id   TEXT NOT NULL,
 
-    -- Display content
+    -- Compatibility display text. Semantic localization data is authoritative.
     title TEXT NOT NULL,
-    body TEXT NOT NULL,
+    body  TEXT NOT NULL,
 
-    -- Optional payload
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-
-    -- Read state
-    read_at TIMESTAMPTZ,
-
-    -- Push delivery state. NULL = not yet (successfully) pushed. Kept
-    -- separate from row existence: a redelivered event that already
-    -- created this row but whose push previously failed must still be
-    -- able to retry the push, without depending on entity dedup alone.
+    read_at   TIMESTAMPTZ,
     pushed_at TIMESTAMPTZ,
 
-    -- Audit
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT notifications_unique
-        UNIQUE (user_id, entity_type, entity_id, type)
+    CONSTRAINT notifications_metadata_object
+        CHECK (jsonb_typeof(metadata) = 'object')
 );
+
+COMMENT ON TABLE notifications IS 'User notification inbox.';
+COMMENT ON COLUMN notifications.source_event_id IS
+'Producer occurrence identity; entity_id remains the navigation target.';
+COMMENT ON COLUMN notifications.pushed_at IS
+'Push processing completion timestamp, not proof of device display.';
+
+CREATE UNIQUE INDEX notifications_legacy_entity_unique
+    ON notifications (user_id, entity_type, entity_id, type)
+    WHERE source_event_id IS NULL;
+
+CREATE UNIQUE INDEX notifications_source_event_unique
+    ON notifications (type, source_event_id)
+    WHERE source_event_id IS NOT NULL;
 
 CREATE INDEX idx_notifications_user_created
     ON notifications (user_id, created_at DESC);
@@ -56,23 +58,29 @@ CREATE INDEX idx_notifications_entity
 CREATE INDEX idx_notifications_actor
     ON notifications (actor_id);
 
--- =============================================================================
--- FCM Tokens
--- =============================================================================
-
 CREATE TABLE fcm_tokens (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    token       TEXT NOT NULL,
+    user_id UUID NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
 
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    token        TEXT NOT NULL UNIQUE,
+    platform     TEXT NOT NULL DEFAULT 'unknown',
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    UNIQUE (user_id, token)
+    CONSTRAINT fcm_tokens_platform_check
+        CHECK (platform IN ('unknown', 'web', 'android', 'ios'))
 );
 
+COMMENT ON COLUMN fcm_tokens.platform IS
+'Client-reported operational metadata; unknown is reserved for legacy rows.';
+
 CREATE INDEX idx_fcm_tokens_user
-ON fcm_tokens(user_id);
+    ON fcm_tokens (user_id);
+
+CREATE INDEX fcm_tokens_last_seen_at_idx
+    ON fcm_tokens (last_seen_at);
 
 COMMIT;

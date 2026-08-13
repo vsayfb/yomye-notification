@@ -267,6 +267,7 @@ Core owns the public notification API and returns `metadata` to Flutter. Before 
 
 Relevant notification columns include:
 
+- `source_event_id`
 - `type`
 - `entity_type`
 - `entity_id` (text in the current shared schema)
@@ -274,7 +275,7 @@ Relevant notification columns include:
 - `metadata` JSONB
 - `read_at`
 - `pushed_at`
-- timestamps
+- `created_at` and `updated_at`
 
 The checked-in Lambda migration may lag the complete Core-owned schema. Treat the live/Core migration as authoritative for shared tables and coordinate any schema change rather than silently diverging.
 

@@ -12,9 +12,9 @@ import (
 
 // FCMTokenRepository is the PostgreSQL implementation of fcm.TokenRepository.
 //
-// Assumption: a `fcm_tokens` table with (user_id UUID, token TEXT) columns.
-// CLAUDE.md only specifies the `notifications` table, so adjust the table
-// and column names here if the actual schema differs.
+// Core owns registration, token transfer, platform metadata, freshness, and
+// stale-token pruning. Lambda only reads a user's tokens and removes tokens
+// Firebase has structurally classified as UNREGISTERED.
 type FCMTokenRepository struct {
 	pool *pgxpool.Pool
 }

@@ -36,6 +36,24 @@ jobs:
           aws s3 cp bootstrap.zip \
             "s3://${{ vars.LAMBDA_DEPLOYMENTS_BUCKET }}/notification-lambda/${{ github.sha }}.zip"
 
+      - name: Configure staging runtime
+        run: |
+          CURRENT_ENVIRONMENT="$(aws lambda get-function-configuration \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --query 'Environment.Variables' \
+            --output json)"
+
+          MERGED_ENVIRONMENT="$(jq -c '. // {} | .APP_ENV = "staging"' <<< "$CURRENT_ENVIRONMENT")"
+
+          aws lambda update-function-configuration \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --environment "Variables=$MERGED_ENVIRONMENT" \
+            --query 'LastUpdateStatus' \
+            --output text
+
+          aws lambda wait function-updated \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}"
+
       - name: Update function code
         run: |
           aws lambda update-function-code \
@@ -54,8 +72,17 @@ jobs:
             --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
             --query "Configuration.LastUpdateStatus" --output text)
 
+          RUNTIME_ENV=$(aws lambda get-function-configuration \
+            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --query 'Environment.Variables.APP_ENV' --output text)
+
           echo "Last update status: $STATE"
           if [ "$STATE" != "Successful" ]; then
             echo "Lambda update did not report Successful."
+            exit 1
+          fi
+
+          if [ "$RUNTIME_ENV" != "staging" ]; then
+            echo "Lambda APP_ENV is not staging."
             exit 1
           fi

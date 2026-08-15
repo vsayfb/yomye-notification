@@ -38,16 +38,9 @@ jobs:
 
       - name: Configure staging runtime
         run: |
-          CURRENT_ENVIRONMENT="$(aws lambda get-function-configuration \
-            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
-            --query 'Environment.Variables' \
-            --output json)"
-
-          MERGED_ENVIRONMENT="$(jq -c '. // {} | .APP_ENV = "staging"' <<< "$CURRENT_ENVIRONMENT")"
-
           aws lambda update-function-configuration \
             --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
-            --environment "Variables=$MERGED_ENVIRONMENT" \
+            --environment 'Variables={APP_ENV=staging}' \
             --query 'LastUpdateStatus' \
             --output text
 

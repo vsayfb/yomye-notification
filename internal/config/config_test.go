@@ -17,15 +17,16 @@ func TestLoadRejectsUnknownEnvironment(t *testing.T) {
 	}
 }
 
-func TestProductionFailsClearlyUntilGCPConfigExists(t *testing.T) {
+func TestProductionRequiresGoogleCloudProject(t *testing.T) {
 	t.Setenv(AppEnv, EnvironmentProduction)
+	t.Setenv(EnvGoogleCloudProject, "")
 
 	config, err := Load(context.Background())
 	if config != nil {
 		t.Fatalf("Load() config = %#v, want nil", config)
 	}
-	if err == nil || !strings.Contains(err.Error(), "GCP production configuration is not implemented") {
-		t.Fatalf("Load() error = %v, want explicit GCP implementation error", err)
+	if err == nil || !strings.Contains(err.Error(), EnvGoogleCloudProject) {
+		t.Fatalf("Load() error = %v, want missing project error", err)
 	}
 }
 

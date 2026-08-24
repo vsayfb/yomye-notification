@@ -4,6 +4,11 @@ const AppEnv = "APP_ENV"
 const AWSLambdaFunctionName = "AWS_LAMBDA_FUNCTION_NAME"
 
 const (
+	EnvGoogleCloudProject   = "GOOGLE_CLOUD_PROJECT"
+	EnvGCPParameterLocation = "GCP_PARAMETER_LOCATION"
+)
+
+const (
 	EnvironmentDevelopment = "development"
 	EnvironmentStaging     = "staging"
 	EnvironmentProduction  = "production"

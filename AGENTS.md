@@ -247,7 +247,9 @@ AWS staging configuration:
 
 The Lambda role needs appropriate SSM, KMS, and Secrets Manager permissions. A VPC-hosted Lambda also needs network access. SSM/Secrets Manager interface endpoints can reach AWS APIs, but Firebase OAuth/FCM requires outbound internet/NAT.
 
-Production GCP configuration is deliberately not implemented yet. `loadGCP` returns a clear error rather than a nil config. Do not claim production support until DB and Firebase credential loading are implemented for GCP.
+Production GCP configuration uses Application Default Credentials with the attached Compute Engine or Cloud Run service account. `GOOGLE_CLOUD_PROJECT` is required and `GCP_PARAMETER_LOCATION` defaults to `global`. Parameter Manager stores the ordinary configuration under `projects/<project>/locations/<location>/parameters/<parameter-id>/versions/latest`; the legacy `rds-secret-arn` parameter contains the Google Secret Manager resource name for PostgreSQL credentials. The loader does not read a local Google credential file.
+
+This notification service consumes only `db-host`, `db-port`, `db-name`, `firebase-credentials`, and `rds-secret-arn`. JWT, Cloudinary, WebSocket-origin, OAuth-client, and outbound category-queue settings belong to other services and must not be introduced here merely to mirror their configuration packages. Message transport remains outside `internal/config`; adding a GCP Pub/Sub runtime requires a separate transport/bootstrap adapter and must not construct an AWS SQS client in production.
 
 The GitHub workflow currently deploys manually (`workflow_dispatch`) to the GitHub `staging` environment, uploads a zip to S3, updates the Lambda, and waits for the update. Verify repository/environment variables and the actual Lambda `APP_ENV` separately.
 
@@ -329,7 +331,6 @@ Tests should cover contracts, not only implementation:
 
 Do not casually fold these into unrelated changes:
 
-- GCP production configuration.
 - Per-token delivery state that prevents duplicate delivery to successful devices during mixed transient failures.
 - Removal of legacy English title/body after client migration is complete.
 - Backfilling old notification metadata with semantic localization fields.

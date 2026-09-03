@@ -249,9 +249,9 @@ The Lambda role needs appropriate SSM, KMS, and Secrets Manager permissions. A V
 
 Production GCP configuration uses Application Default Credentials with the attached Compute Engine or Cloud Run service account. `GOOGLE_CLOUD_PROJECT` is required and `GCP_PARAMETER_LOCATION` defaults to `global`. Parameter Manager stores the ordinary configuration under `projects/<project>/locations/<location>/parameters/<parameter-id>/versions/latest`; the legacy `rds-secret-arn` parameter contains the Google Secret Manager resource name for PostgreSQL credentials. The loader does not read a local Google credential file.
 
-This notification service consumes only `db-host`, `db-port`, `db-name`, `firebase-credentials`, and `rds-secret-arn`. JWT, Cloudinary, WebSocket-origin, OAuth-client, and outbound category-queue settings belong to other services and must not be introduced here merely to mirror their configuration packages. Message transport remains outside `internal/config`; adding a GCP Pub/Sub runtime requires a separate transport/bootstrap adapter and must not construct an AWS SQS client in production.
+This notification service consumes only `db-host`, `db-port`, `db-name`, `firebase-credentials`, and `rds-secret-arn`. JWT, Cloudinary, WebSocket-origin, OAuth-client, and outbound category-queue settings belong to other services and must not be introduced here merely to mirror their configuration packages. Production transport is an authenticated Pub/Sub push request to the dedicated Cloud Run HTTP entrypoint; AWS Lambda/SQS remains staging-only.
 
-The GitHub workflow currently deploys manually (`workflow_dispatch`) to the GitHub `staging` environment, uploads a zip to S3, updates the Lambda, and waits for the update. Verify repository/environment variables and the actual Lambda `APP_ENV` separately.
+The staging workflow deploys the AWS Lambda through S3. The production workflow builds a non-root container, pushes it to Artifact Registry, and updates the production Cloud Run service. Both are manual (`workflow_dispatch`) deployments using environment-scoped OIDC configuration.
 
 ## Shared database contracts
 

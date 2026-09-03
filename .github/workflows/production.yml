@@ -1,0 +1,44 @@
+name: Deploy production
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+concurrency:
+  group: production-notification
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+      - name: Build and push image
+        id: image
+        run: |
+          set -euo pipefail
+          image="${{ vars.GCP_ARTIFACT_REGISTRY }}/notification:${{ github.sha }}"
+          docker build --tag "$image" .
+          docker push "$image"
+          echo "uri=${image}" >> "$GITHUB_OUTPUT"
+      - name: Deploy Cloud Run revision
+        run: |
+          gcloud run services update "${{ vars.GCP_NOTIFICATION_SERVICE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION }}" \
+            --image "${{ steps.image.outputs.uri }}" --quiet
+      - name: Verify revision readiness
+        run: |
+          status=$(gcloud run services describe "${{ vars.GCP_NOTIFICATION_SERVICE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" --region "${{ vars.GCP_REGION }}" \
+            --format='value(status.conditions[0].status)')
+          [[ "$status" == "True" ]] || { echo "Cloud Run service is not ready: $status" >&2; exit 1; }

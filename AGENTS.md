@@ -11,28 +11,28 @@
 
 ## What this project is
 
-This repository is Yövmiye's Go notification service. It runs as an AWS Lambda, consumes business-event envelopes from SQS, renders semantic notifications, persists the in-app inbox row in PostgreSQL, resolves FCM device tokens, and sends push notifications through Firebase Cloud Messaging.
+This repository is Yömye's Go notification service. It consumes business-event envelopes through AWS Lambda/SQS in staging and authenticated Pub/Sub push to Cloud Run in GCP production. Both entrypoints use the same application pipeline to render semantic notifications, persist the in-app inbox row in PostgreSQL, resolve FCM device tokens, and send push notifications through Firebase Cloud Messaging.
 
 Treat this file plus the current implementation and current sibling-service migrations as the source of truth. `CLAUDE.md` is an older architectural brief and contains stale examples (including older schema/type assumptions); preserve its useful architectural intent, but do not override newer contracts documented here with it.
 
 The service is an independent consumer in a distributed backend. Nearby repositories may be available as siblings:
 
 - `../worker`: categorization worker and producer of listing/category events.
-- `../core-service`: shared schema owner and HTTP API that returns persisted notifications and registers FCM tokens.
-- `../chat-service`: chat event producer.
+- `../core`: shared schema owner and HTTP API that returns persisted notifications and registers FCM tokens.
+- `../chat`: chat event producer.
 
 Inspect the relevant sibling implementation when a cross-service contract is unclear, but only edit this repository unless the user explicitly expands scope.
 
-The current launch scope is gig/service-only. Generic `listings` are canonical, but Yövmiye does not currently expose for-sale behavior. Do not add or re-enable `for-sale` notification behavior without an explicit product change.
+The current launch scope is gig/service-only. Generic `listings` are canonical, but Yömye does not currently expose for-sale behavior. Do not add or re-enable `for-sale` notification behavior without an explicit product change.
 
 ## Architecture is intentional
 
 Preserve this flow:
 
 ```text
-SQS batch
-  -> handler (transport only)
-  -> service orchestration
+AWS SQS batch -> Lambda handler ----------+
+                                           +-> shared service orchestration
+GCP Pub/Sub push -> Cloud Run HTTP handler-+
   -> optional fan-out resolver
   -> event-specific renderer
   -> notification persistence
@@ -43,7 +43,7 @@ SQS batch
 
 Responsibilities:
 
-- `internal/handler`: unmarshal SQS envelopes and invoke the service. No SQL, Firebase, or wording.
+- `internal/handler`: unwrap SQS batches or Pub/Sub push requests, decode event envelopes, and invoke the shared service. No SQL, Firebase, or wording.
 - `internal/service`: orchestration, fan-out, retry-relevant outcomes, stale-token cleanup.
 - `internal/service/dispatcher.go`: renderer and optional resolver registrations.
 - `internal/event`: inbound and synthesized event DTOs.
@@ -59,7 +59,7 @@ Do not move event-specific switches into the handler or repositories. Adding a n
 
 ## Event envelope and current events
 
-Every SQS body uses:
+After its transport wrapper is removed, every business event uses:
 
 ```json
 {
@@ -76,9 +76,9 @@ Registered event types:
 
 `listing_approved` is canonical. Do not restore `gig_approved`.
 
-Worker-originated events (`listing_approved` and `gig_category_matched`) use a versioned envelope with deterministic `event_id`. Version 1 is currently supported. The ID belongs to the envelope and is the domain-event idempotency key; SQS message ID is logging/transport metadata only. A PostgreSQL claim is acquired before work, processed duplicates are acknowledged, active duplicates remain retryable, and `processed_at` is written only after all required work succeeds.
+Worker-originated events (`listing_approved` and `gig_category_matched`) use a versioned envelope with deterministic `event_id`. Version 1 is currently supported. The ID belongs to the envelope and is the domain-event idempotency key; the SQS or Pub/Sub message ID is logging/transport metadata only. A PostgreSQL claim is acquired before work, processed duplicates are acknowledged, active duplicates remain retryable, and `processed_at` is written only after all required work succeeds.
 
-Chat-originated `new_message` currently uses the legacy unversioned envelope. Its payload contains `recipient_id`, `sender_id`, `sender_name`, `thread_id`, `gig_id`, `message_id`, `message_preview`, and `occurred_at`. `message_id` is the notification source idempotency key; `thread_id` remains the navigation entity. Lambda persists the raw message ID in `source_event_id` and derives a stable UUIDv5 claim ID from it for the existing leased `notification_processed_events` mechanism, preventing concurrent duplicate pushes. An empty `gig_id` means a social direct conversation, while a non-empty gig UUID means an application/listing conversation. Never notify when recipient and sender are the same. Chat owns safe preview construction; Lambda must not generate attachment URLs or log the complete preview.
+Chat-originated `new_message` currently uses the legacy unversioned envelope. Its payload contains `recipient_id`, `sender_id`, `sender_name`, `thread_id`, `gig_id`, `message_id`, `message_preview`, and `occurred_at`. `message_id` is the notification source idempotency key; `thread_id` remains the navigation entity. The service persists the raw message ID in `source_event_id` and derives a stable UUIDv5 claim ID from it for the existing leased `notification_processed_events` mechanism, preventing concurrent duplicate pushes. An empty `gig_id` means a social direct conversation, while a non-empty gig UUID means an application/listing conversation. Never notify when recipient and sender are the same. Chat owns safe preview construction; the notification service must not generate attachment URLs or log the complete preview.
 
 ### listing_approved
 
@@ -102,7 +102,7 @@ Rules:
 - `listing_id` is the canonical entity identifier.
 - Persist and route with `entity_type = "listing"` and `entity_id = listing_id`.
 - Only `base_category_slug = "gig"` is accepted. The slug is a static listing-family discriminator, not category identity.
-- Lambda does not query listing details for approval rendering. The worker publishes only after classified typed details and title are persisted and the listing is opened.
+- The notification service does not query listing details for approval rendering. The worker publishes only after classified typed details and title are persisted and the listing is opened.
 - Trim the event title. A usable title uses `notifications.listing_approved` with `{"title": "..."}`.
 - A missing/empty/whitespace title must use `notifications.listing_approved_generic` with `{}`. Never send `{ "title": "" }`.
 
@@ -141,7 +141,7 @@ This event fans out live by joining `user_categories.category_id` and current us
 
 ## Category-domain boundaries
 
-The global category taxonomy is owned by the worker. This Lambda is read-only.
+The global category taxonomy is owned by the worker. The notification service is read-only.
 
 - Category UUID is the sole identity. Never join or deduplicate by category name, slug, locale, or localization.
 - Canonical English fields are `canonical_name`, `canonical_slug`, and `canonical_description`.
@@ -152,7 +152,7 @@ The global category taxonomy is owned by the worker. This Lambda is read-only.
 
 ## Semantic, locale-neutral notification contract
 
-Lambda does not know or select the user's UI locale. Flutter localizes using its active catalog, with bundled Turkish fallback.
+The notification service does not know or select the user's UI locale. Flutter localizes using its active catalog, with bundled Turkish fallback.
 
 Every FCM data payload must contain:
 
@@ -195,27 +195,29 @@ The legacy database deduplication key for rows without a source event is:
 (user_id, entity_type, entity_id, type)
 ```
 
-`Create` returns either the new row or the existing conflict row. `pushed_at` prevents an SQS redelivery from pushing an already completed notification again.
+`Create` returns either the new row or the existing conflict row. `pushed_at` prevents a transport redelivery from pushing an already completed notification again.
 
 Worker-event delivery is deduplicated independently by deterministic envelope `event_id` in `notification_processed_events`. That prevents re-executing the same logical worker event, including concurrent duplicates. Claims have a five-minute lease so a crashed invocation does not block the event forever.
 
-Chat notifications set `notifications.source_event_id = message_id` and use the partial unique key `(type, source_event_id)`. This makes distinct messages in one thread distinct while deduplicating SQS redelivery. `entity_id` remains `thread_id`; never repurpose the message ID as the navigation target. The shared Core-owned schema migration adding this column and replacing the old unconditional entity constraint must be deployed before this Lambda version.
+Chat notifications set `notifications.source_event_id = message_id` and use the partial unique key `(type, source_event_id)`. This makes distinct messages in one thread distinct while deduplicating transport redelivery. `entity_id` remains `thread_id`; never repurpose the message ID as the navigation target. The shared Core-owned schema migration adding this column and replacing the old unconditional entity constraint must be deployed before a notification release that depends on it.
 
 `pushed_at` currently means push processing completed without a retryable error. It may be set when invalid/unregistered tokens were permanently resolved, even if no device received the push. Do not present it as a delivery receipt.
 
-If the user has no FCM tokens, the inbox row remains persisted and `pushed_at` remains null, while the SQS record succeeds. The service does not replay old notifications automatically when a client later registers a token.
+If the user has no FCM tokens, the inbox row remains persisted and `pushed_at` remains null, while the transport message succeeds. The service does not replay old notifications automatically when a client later registers a token.
 
 The SQS handler processes up to five records concurrently and returns an `SQSEventResponse` containing only retryable record failures. Unknown event types and malformed envelopes/payloads are acknowledged after a privacy-safe diagnostic; database and provider failures remain in `BatchItemFailures`. The AWS event-source mapping must enable `ReportBatchItemFailures`, otherwise record-level retry behavior is not active.
 
+The Pub/Sub handler accepts only `POST`, limits the HTTP request body to 1 MiB, decodes the base64-backed Pub/Sub `message.data` into the same business envelope, and returns `204` for success or non-retryable poison events. Retryable service failures return `500`, which tells the push subscription to retry. Authentication is enforced by the production infrastructure before the request reaches the Cloud Run service.
+
 ## FCM error handling and token lifecycle
 
-The client must register/upsert its current token on login/startup and after Firebase token changes. Lambda owns cleanup when Firebase proves a token is permanently invalid.
+The client must register/upsert its current token on login/startup and after Firebase token changes. The notification service owns cleanup when Firebase proves a token is permanently invalid.
 
 Rules:
 
 - Delete a token only when the original Firebase Admin SDK error is structurally classified as `UNREGISTERED` via `messaging.IsUnregistered`.
 - Do not delete for generic errors, HTTP 404 alone, `INVALID_ARGUMENT` alone, timeouts, quota failures, network errors, or message text such as `NotRegistered`.
-- Unregistered tokens are deleted and treated as permanently resolved so they do not poison SQS retries.
+- Unregistered tokens are deleted and treated as permanently resolved so they do not poison transport retries.
 - Transient errors retain the token and fail the record for retry.
 - Mixed delivery may send successfully to some devices, delete unregistered devices, and retry only when another device has a transient failure. Successful devices can still see duplicates on a mixed transient retry because per-token delivery state is not persisted.
 - Log structured Firebase diagnostics (`http_status`, platform status, FCM error code, complete SDK message) without token values.
@@ -279,7 +281,7 @@ Relevant notification columns include:
 - `pushed_at`
 - `created_at` and `updated_at`
 
-The checked-in Lambda migration may lag the complete Core-owned schema. Treat the live/Core migration as authoritative for shared tables and coordinate any schema change rather than silently diverging.
+The checked-in notification migration may lag the complete Core-owned schema. Treat the live/Core migration as authoritative for shared tables and coordinate any schema change rather than silently diverging.
 
 ## Logging and operational diagnosis
 
@@ -319,7 +321,7 @@ Tests should cover contracts, not only implementation:
 
 ## Working style for future agents
 
-- Lead with evidence. Inspect the event producer, Core schema/API consumer, and this Lambda when a cross-service issue spans them.
+- Lead with evidence. Inspect the event producer, Core schema/API consumer, and this notification service when a cross-service issue spans them.
 - Distinguish diagnosis from implementation. Do not mutate external infrastructure or sibling repositories merely because it would help.
 - Preserve architecture and existing user changes; make focused patches and proportionate tests.
 - Prefer explicit validation over silent fallback when fallback can misroute a notification.

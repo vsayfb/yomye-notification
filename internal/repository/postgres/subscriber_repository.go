@@ -48,7 +48,7 @@ func (r *SubscriberRepository) ListByCategoryAndLocation(
 		JOIN user_categories uc
 			ON uc.user_id = u.id
 		WHERE uc.category_id = $1
-		  AND u.country_id IS NOT DISTINCT FROM $2::uuid
+		  AND ($2::uuid IS NULL OR u.country_id IS NOT DISTINCT FROM $2::uuid)
 		  AND ($3::uuid IS NULL OR u.place_id = $3);
 	`
 

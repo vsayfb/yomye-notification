@@ -133,7 +133,8 @@ Location rules:
 - Never translate UUID locations into legacy integer city/district IDs.
 - Never emit `city_id` or `district_id`.
 - Legacy events containing those fields are rejected explicitly; silently treating them as locationless would misroute notifications.
-- No country matches locationless/remote users.
+- No country on the event means a remote listing and matches category
+  subscribers in every country.
 - Country-only matches subscribers throughout that country.
 - Country plus place matches the exact opaque place UUID. A place is not assumed to be a city or district.
 
